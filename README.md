@@ -47,7 +47,17 @@ const payload = verifyWebhookSignature(
 )
 ```
 
+## Security
+
+- Store `HEBRAH_API_KEY` and `HEBRAH_WEBHOOK_SECRET` in server-side environment variables or a secrets manager only — never expose them to browsers or commit `.env` files.
+- The SDK does not persist credentials; they live in memory for the lifetime of each `HebrahClient` instance.
+- Treat `HebrahApiError.detail` as operator-only diagnostics. Do not log or return it to end users — it may contain internal paths or sensitive API error payloads.
+
+See [SECURITY.md](./SECURITY.md) for supported versions and vulnerability reporting.
+
 ## API surface (v0.8)
+
+### Sandbox & resources
 
 | Method | Description |
 |--------|-------------|
@@ -64,8 +74,35 @@ const payload = verifyWebhookSignature(
 | `client.sandbox.payerRules(payerId)` | `GET /v1/sandbox/payer-rules/{id}` |
 | `client.patients.list(connectionId?)` | **Deprecated** — `GET /v1/patients` |
 | `client.patients.get(id, connectionId?)` | **Deprecated** — `GET /v1/patients/{id}` |
+
+### HL7, webhooks, interop
+
+| Method | Description |
+|--------|-------------|
+| `client.sandbox.hl7Templates()` | `GET /v1/sandbox/hl7/templates` |
+| `client.sandbox.injectHl7(params?)` | `POST /v1/sandbox/hl7/inject` |
+| `client.sandbox.configureWebhookReliability(profile)` | `PUT /v1/sandbox/webhook-reliability` |
+| `client.sandbox.runWebhookReliabilityScenario(scenarioId, params?)` | `POST /v1/sandbox/webhook-reliability/scenarios/{id}/run` |
+| `client.sandbox.runMpiMatch(params?)` | `POST /v1/sandbox/mpi/match` |
+| `client.sandbox.runAggregatorQuery(params)` | `POST /v1/sandbox/aggregator/query` |
+| `client.sandbox.getPractitionerCredentialing(practitionerId)` | `GET /v1/sandbox/credentialing/practitioners/{id}` |
 | `client.webhooks.triggerMockEvent({ event?, patientId?, connectionId?, scenarioId? })` | `POST /v1/webhooks/trigger-mock-event` |
+| `client.webhooks.listDeliveries(params?)` | `GET /v1/webhooks/deliveries` |
+| `client.webhooks.replayDelivery(deliveryId)` | `POST /v1/webhooks/deliveries/{id}/replay` |
 | `verifyWebhookSignature(rawBody, signature, secret)` | Local HMAC-SHA256 verify |
+
+### SMART & FHIR
+
+| Method | Description |
+|--------|-------------|
+| `client.smart.launch(params)` | `POST /v1/smart/launch` |
+| `client.smart.registerClient(params)` | `POST /v1/smart/register` |
+| `client.smart.exchangeToken(params)` | `POST /v1/smart/token` (OAuth access token, not API key) |
+| `client.fhir.readPatient(patientId, accessToken)` | `GET /v1/fhir/Patient/{id}` (SMART access token) |
+
+### Advanced: BYOM agent harness
+
+`HebrahAgentHarness` is exported for bring-your-own-model EHR workflows (MCP + integration-agent). It is **not** part of the core integrator quick start — see the [athena-model-agent demo](https://github.com/Hebrah-inc/hebrah-examples/tree/main/athena-model-agent-demo) for usage. Harness improvements are tracked separately from the core client.
 
 ## Local development
 
@@ -89,9 +126,11 @@ pnpm build
 
 ## Publishing
 
-Tag releases as `sdk-node-v0.1.0` to trigger GitHub Actions publish to npm.
+Tag releases as `sdk-node-v0.8.0` to trigger GitHub Actions publish to npm.
 
-Set repository secret `NPM_TOKEN` with publish access to the `@hebrah` scope.
+Preferred: configure npm **trusted publishing** (OIDC) for `Hebrah-inc/hebrah-sdk-node`. Fallback: set repository secret `NPM_TOKEN` with publish access to the `@hebrah` scope.
+
+See [PUBLISHING.md](./PUBLISHING.md) for the full release checklist.
 
 ## Docs
 
