@@ -1,9 +1,52 @@
 import { HebrahApiError } from './errors.js'
 import { DEFAULT_BASE_URL } from './types.js'
 
+const DEFAULT_TIMEOUT_MS = 30_000
+
+const LOCAL_HTTP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
 export interface HttpClientConfig {
   apiKey: string
   baseUrl: string
+  /** When false, HebrahApiError.detail is omitted. Default true. */
+  includeErrorDetail?: boolean
+}
+
+export function errorDetail(config: HttpClientConfig, raw?: string): string | undefined {
+  return config.includeErrorDetail !== false ? raw : undefined
+}
+
+export function assertSafeBaseUrl(url: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`Invalid baseUrl: ${url}`)
+  }
+
+  if (parsed.protocol === 'https:') {
+    return
+  }
+
+  if (parsed.protocol === 'http:' && LOCAL_HTTP_HOSTS.has(parsed.hostname)) {
+    return
+  }
+
+  throw new Error(
+    `baseUrl must use https:// or http://localhost/127.0.0.1 for local development (got ${parsed.protocol}//${parsed.hostname})`
+  )
+}
+
+export async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')
 }
 
 export async function hebrahRequest<T>(
@@ -16,7 +59,7 @@ export async function hebrahRequest<T>(
 
   let response: Response
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       ...init,
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -24,7 +67,10 @@ export async function hebrahRequest<T>(
         ...init?.headers
       }
     })
-  } catch {
+  } catch (err) {
+    if (isTimeoutError(err)) {
+      throw new HebrahApiError('Control plane request timed out', 504)
+    }
     throw new HebrahApiError(
       `Control plane unreachable at ${base}. Is hebrah-api running?`,
       503
@@ -32,7 +78,7 @@ export async function hebrahRequest<T>(
   }
 
   if (!response.ok) {
-    const detail = await response.text()
+    const detail = errorDetail(config, await response.text())
     throw new HebrahApiError(
       `Control plane request failed (${response.status})`,
       response.status,
@@ -48,5 +94,10 @@ export async function hebrahRequest<T>(
 }
 
 export function resolveBaseUrl(baseUrl?: string): string {
-  return (baseUrl ?? process.env.HEBRAH_API_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '')
+  const resolved = (baseUrl ?? process.env.HEBRAH_API_BASE_URL ?? DEFAULT_BASE_URL).replace(
+    /\/$/,
+    ''
+  )
+  assertSafeBaseUrl(resolved)
+  return resolved
 }

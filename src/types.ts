@@ -7,6 +7,8 @@ export interface HebrahClientOptions {
   baseUrl?: string
   /** Default sandbox connection id for methods that accept optional `connectionId`. */
   defaultConnectionId?: string
+  /** When false, HebrahApiError.detail is omitted. Default true. */
+  includeErrorDetail?: boolean
 }
 
 export interface HealthResponse {
