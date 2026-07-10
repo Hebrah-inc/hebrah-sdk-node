@@ -1,5 +1,5 @@
 import { HebrahApiError } from './errors.js'
-import { hebrahRequest, resolveBaseUrl } from './http.js'
+import { errorDetail, fetchWithTimeout, hebrahRequest, resolveBaseUrl } from './http.js'
 import type {
   HealthResponse,
   PatientListResponse,
@@ -37,6 +37,7 @@ export class HebrahClient {
     apiKey: string
     baseUrl: string
     defaultConnectionId?: string
+    includeErrorDetail?: boolean
   }
 
   readonly sandbox = {
@@ -99,7 +100,8 @@ export class HebrahClient {
     this.config = {
       apiKey: options.apiKey.trim(),
       baseUrl: resolveBaseUrl(options.baseUrl),
-      defaultConnectionId: options.defaultConnectionId?.trim() || undefined
+      defaultConnectionId: options.defaultConnectionId?.trim() || undefined,
+      includeErrorDetail: options.includeErrorDetail
     }
   }
 
@@ -118,9 +120,17 @@ export class HebrahClient {
 
   async health(): Promise<HealthResponse> {
     const base = this.config.baseUrl.replace(/\/$/, '')
-    const response = await fetch(`${base}/health`)
+    let response: Response
+    try {
+      response = await fetchWithTimeout(`${base}/health`)
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        throw new HebrahApiError('Health check timed out', 504)
+      }
+      throw new HebrahApiError('Health check failed: control plane unreachable', 503)
+    }
     if (!response.ok) {
-      const detail = await response.text()
+      const detail = errorDetail(this.config, await response.text())
       throw new HebrahApiError(
         `Health check failed (${response.status})`,
         response.status,
@@ -340,13 +350,21 @@ export class HebrahClient {
       client_id: params.clientId,
       code_verifier: params.codeVerifier
     })
-    const response = await fetch(`${base}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    })
+    let response: Response
+    try {
+      response = await fetchWithTimeout(`${base}/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      })
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        throw new HebrahApiError('SMART token exchange timed out', 504)
+      }
+      throw new HebrahApiError('SMART token exchange failed: control plane unreachable', 503)
+    }
     if (!response.ok) {
-      const detail = await response.text()
+      const detail = errorDetail(this.config, await response.text())
       throw new HebrahApiError(`SMART token exchange failed (${response.status})`, response.status, detail)
     }
     return response.json() as Promise<SmartTokenResponse>
@@ -357,17 +375,25 @@ export class HebrahClient {
     accessToken: string
   ): Promise<Record<string, unknown>> {
     const base = this.config.baseUrl.replace(/\/$/, '')
-    const response = await fetch(
-      `${base}/fhir/R4/Patient/${encodeURIComponent(patientId)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/fhir+json'
+    let response: Response
+    try {
+      response = await fetchWithTimeout(
+        `${base}/fhir/R4/Patient/${encodeURIComponent(patientId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/fhir+json'
+          }
         }
+      )
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        throw new HebrahApiError('FHIR Patient read timed out', 504)
       }
-    )
+      throw new HebrahApiError('FHIR Patient read failed: control plane unreachable', 503)
+    }
     if (!response.ok) {
-      const detail = await response.text()
+      const detail = errorDetail(this.config, await response.text())
       throw new HebrahApiError(`FHIR Patient read failed (${response.status})`, response.status, detail)
     }
     return response.json() as Promise<Record<string, unknown>>

@@ -30,6 +30,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/sdk-node-v')
     needs: test
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
       id-token: write
@@ -45,6 +46,11 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install
       - run: pnpm run build
-      # Requires npm trusted publishing for Hebrah-inc/hebrah-sdk-node (OIDC).
-      # Fallback: set NPM_TOKEN secret and add env NODE_AUTH_TOKEN to this step.
-      - run: pnpm publish --no-git-checks --access public --provenance
+      - name: Publish with npm token
+        if: ${{ vars.PUBLISH_WITH_NPM_TOKEN == 'true' }}
+        run: pnpm publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish with OIDC provenance
+        if: ${{ vars.PUBLISH_WITH_NPM_TOKEN != 'true' }}
+        run: pnpm publish --no-git-checks --access public --provenance

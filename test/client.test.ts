@@ -19,6 +19,20 @@ describe('HebrahClient', () => {
     expect(() => new HebrahClient({ apiKey: '' })).toThrow('apiKey is required')
   })
 
+  it('allows https baseUrl', () => {
+    expect(() => new HebrahClient({ apiKey: 'hb_test_key', baseUrl: 'https://api.hebrah.com' })).not.toThrow()
+  })
+
+  it('allows http localhost baseUrl', () => {
+    expect(() => new HebrahClient({ apiKey: 'hb_test_key', baseUrl: 'http://localhost:8000' })).not.toThrow()
+  })
+
+  it('rejects non-local http baseUrl', () => {
+    expect(() => new HebrahClient({ apiKey: 'hb_test_key', baseUrl: 'http://evil.example.com' })).toThrow(
+      /baseUrl must use https/
+    )
+  })
+
   it('fetches sandbox catalog', async () => {
     const catalog = {
       org_id: 'org-1',
@@ -46,6 +60,20 @@ describe('HebrahClient', () => {
           Authorization: 'Bearer hb_test_key'
         })
       })
+    )
+  })
+
+  it('encodes special characters in sandbox domain path', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 'foo/bar' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    await client.sandbox.domain('foo/bar')
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/sandbox/domains/foo%2Fbar`,
+      expect.any(Object)
     )
   })
 
@@ -79,6 +107,27 @@ describe('HebrahClient', () => {
       const apiErr = err as HebrahApiError
       expect(apiErr.status).toBe(404)
       expect(apiErr.detail).toBe('not found')
+    }
+  })
+
+  it('omits error detail when includeErrorDetail is false', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('not found', { status: 404 })
+    )
+
+    const client = new HebrahClient({
+      apiKey: 'hb_test_key',
+      baseUrl: BASE,
+      includeErrorDetail: false
+    })
+    try {
+      await client.patients.get('bad')
+      expect.fail('expected HebrahApiError')
+    } catch (err) {
+      expect(err).toBeInstanceOf(HebrahApiError)
+      const apiErr = err as HebrahApiError
+      expect(apiErr.status).toBe(404)
+      expect(apiErr.detail).toBeUndefined()
     }
   })
 
@@ -118,6 +167,89 @@ describe('HebrahClient', () => {
     expect(init?.method).toBe('POST')
     expect(init?.body).toContain('patient.admitted')
   })
+
+  it('smart.launch sends API key Bearer', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ launch_url: 'https://example.com' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    await client.smart.launch({ patientId: 'pat_01' })
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/smart/launch`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer hb_test_key'
+        })
+      })
+    )
+  })
+
+  it('smart.registerClient posts to /v1/smart/clients with API key', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ client_id: 'app-1' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    await client.smart.registerClient({
+      clientId: 'app-1',
+      redirectUris: ['https://app.example/callback']
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/smart/clients`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer hb_test_key'
+        })
+      })
+    )
+  })
+
+  it('smart.exchangeToken posts to /oauth/token without API key', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ access_token: 'tok', token_type: 'Bearer' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    await client.smart.exchangeToken({
+      code: 'auth-code',
+      redirectUri: 'https://app.example/callback',
+      clientId: 'app-1',
+      codeVerifier: 'verifier'
+    })
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(url).toBe(`${BASE}/oauth/token`)
+    expect(init?.method).toBe('POST')
+    const headers = init?.headers as Record<string, string>
+    expect(headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+    expect(headers.Authorization).toBeUndefined()
+  })
+
+  it('fhir.readPatient uses SMART access token not API key', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ resourceType: 'Patient', id: 'pat_01' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    await client.fhir.readPatient('pat_01', 'smart-access-token')
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/fhir/R4/Patient/pat_01`,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer smart-access-token'
+        })
+      })
+    )
+    const [, init] = vi.mocked(fetch).mock.calls[0]!
+    const headers = init?.headers as Record<string, string>
+    expect(headers.Authorization).not.toContain('hb_test_key')
+  })
 })
 
 describe('resolveBaseUrl', () => {
@@ -132,6 +264,11 @@ describe('resolveBaseUrl', () => {
   it('falls back to HEBRAH_API_BASE_URL env var', () => {
     process.env.HEBRAH_API_BASE_URL = 'http://localhost:8000/'
     expect(resolveBaseUrl()).toBe('http://localhost:8000')
+  })
+
+  it('rejects unsafe http env baseUrl', () => {
+    process.env.HEBRAH_API_BASE_URL = 'http://evil.example.com'
+    expect(() => resolveBaseUrl()).toThrow(/baseUrl must use https/)
   })
 })
 
