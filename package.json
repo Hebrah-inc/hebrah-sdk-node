@@ -1,6 +1,6 @@
 {
   "name": "@hebrah/sdk",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "description": "Official Node.js SDK for the hebrah control plane API",
   "type": "module",
   "main": "./dist/index.cjs",

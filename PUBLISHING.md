@@ -9,9 +9,9 @@
 ## Release
 
 ```bash
-git tag sdk-node-v0.8.0
+git tag sdk-node-v0.8.2
 git push origin main
-git push origin sdk-node-v0.8.0
+git push origin sdk-node-v0.8.2
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs tests and publishes on tags matching `sdk-node-v*`.
@@ -36,7 +36,7 @@ npm publish --access public
 ## Smoke test after publish
 
 ```bash
-npm install @hebrah/sdk@0.8.0
+npm install @hebrah/sdk@0.8.1
 HEBRAH_API_BASE_URL=http://localhost:8000 HEBRAH_API_KEY=hb_test_your_key node scripts/smoke.mjs
 ```
 
@@ -46,4 +46,4 @@ HEBRAH_API_BASE_URL=http://localhost:8000 HEBRAH_API_KEY=hb_test_your_key node s
 2. Create GitHub Environment `npm` on `Hebrah-inc/hebrah-sdk-node`.
 3. Add trusted publishing: npm package settings → **Publishing access** → link GitHub repo `Hebrah-inc/hebrah-sdk-node`, workflow `CI`, environment `npm`.
 4. Confirm the GitHub repo is public (referenced in `package.json` `repository`).
-5. Push tag `sdk-node-v0.8.0` and verify the package appears at `https://www.npmjs.com/package/@hebrah/sdk`.
+5. Push tag `sdk-node-v0.8.1` and verify the package appears at `https://www.npmjs.com/package/@hebrah/sdk`.
