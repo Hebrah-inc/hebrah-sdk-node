@@ -105,34 +105,6 @@ See [SECURITY.md](./SECURITY.md) for supported versions and vulnerability report
 
 `HebrahAgentHarness` is exported for bring-your-own-model EHR workflows (MCP + integration-agent). It is **not** part of the core integrator quick start — see the [athena-model-agent demo](https://github.com/Hebrah-inc/hebrah-examples/tree/main/athena-model-agent-demo) for usage. Harness improvements are tracked separately from the core client.
 
-## Local development
-
-Point at hebrah-api on your machine:
-
-```bash
-export HEBRAH_API_BASE_URL=http://localhost:8000
-export HEBRAH_API_KEY=hb_test_your_key
-export HEBRAH_CONNECTION_ID=conn-sa-your_connection_id
-```
-
-Start the control plane: `docker compose up --build` in the [hebrah-api](https://github.com/Hebrah-inc/hebrah-api) repo.
-
-## Development
-
-```bash
-pnpm install
-pnpm test
-pnpm build
-```
-
-## Publishing
-
-Tag releases as `sdk-node-v0.8.0` to trigger GitHub Actions publish to npm.
-
-Preferred: configure npm **trusted publishing** (OIDC) for `Hebrah-inc/hebrah-sdk-node`. Fallback: set repo variable `PUBLISH_WITH_NPM_TOKEN=true` and `NPM_TOKEN` in the `npm` environment.
-
-See [PUBLISHING.md](./PUBLISHING.md) for the full release checklist.
-
 ## Docs
 
 Full integrator reference: [hebrah-app `/docs/sdk`](https://app.hebrah.com/docs/sdk) (dashboard developer docs).
