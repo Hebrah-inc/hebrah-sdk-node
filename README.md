@@ -1,5 +1,13 @@
 # @hebrah/sdk
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/@hebrah/sdk.svg)](https://www.npmjs.com/package/@hebrah/sdk)
+[![npm downloads](https://img.shields.io/npm/dm/@hebrah/sdk.svg)](https://www.npmjs.com/package/@hebrah/sdk)
+[![Node ≥18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=node.js&logoColor=white)](./package.json)
+[![TypeScript strict](https://img.shields.io/badge/typescript-strict-3178C6?logo=typescript&logoColor=white)](./tsconfig.json)
+[![GitHub stars](https://img.shields.io/github/stars/Hebrah-inc/hebrah-sdk-node.svg?style=social)](https://github.com/Hebrah-inc/hebrah-sdk-node)
+[![GitHub issues](https://img.shields.io/github/issues/Hebrah-inc/hebrah-sdk-node.svg)](https://github.com/Hebrah-inc/hebrah-sdk-node/issues)
+
 Official Node.js SDK for the [hebrah](https://hebrah.com) control plane API (hebrah-api).
 
 ## Install
