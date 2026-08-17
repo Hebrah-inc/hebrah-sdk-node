@@ -117,6 +117,14 @@ See [SECURITY.md](./SECURITY.md) for supported versions and vulnerability report
 
 Full integrator reference: [hebrah-app `/docs/sdk`](https://app.hebrah.com/docs/sdk) (dashboard developer docs).
 
+## Examples
+
+Runnable TypeScript snippets live in [`examples/`](./examples):
+
+- [`catalog.ts`](./examples/catalog.ts) — fetch the sandbox catalog
+- [`verify-webhook.ts`](./examples/verify-webhook.ts) — verify an `X-Hebrah-Signature`
+- [`trigger-mock-event.ts`](./examples/trigger-mock-event.ts) — fire a mock event
+
 ## License
 
 MIT
