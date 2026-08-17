@@ -14,6 +14,6 @@ console.log('health:', health.status)
 
 const catalog = await client.sandbox.catalog()
 const patientId = catalog.sample_patient_ids[0]
-const patient = await client.patients.get(patientId)
+const patient = await client.sandbox.resource('Patient', patientId)
 console.log('patient:', patient.resourceType, patient.id)
 console.log('smoke ok')
