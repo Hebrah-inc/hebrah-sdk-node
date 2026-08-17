@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `scripts/smoke.mjs` now uses the non-deprecated `client.sandbox.resource('Patient', id)` path (was `client.patients.get(id)` which emits `DeprecationWarning` since v0.8).
+- Pinned `postcss >=8.5.23`, `nanoid >=3.3.18`, and `esbuild >=0.28.1` via `pnpm.overrides` to clear 5 dev-only transitive Dependabot advisories (3 high, 1 moderate, 1 low) coming through `tsup`. No runtime impact — all affected packages are dev dependencies.
 
 ### Added
 

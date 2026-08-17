@@ -49,6 +49,13 @@
   "publishConfig": {
     "access": "public"
   },
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.23",
+      "nanoid": "^3.3.18",
+      "esbuild": "^0.28.1"
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "tsup": "^8.5.0",
