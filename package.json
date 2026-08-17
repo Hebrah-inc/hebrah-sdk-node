@@ -1,10 +1,11 @@
 {
   "name": "@hebrah/sdk",
   "version": "0.8.2",
-  "description": "Official Node.js SDK for the hebrah control plane API",
+  "description": "Official Node.js SDK for the Hebrah healthcare connectivity platform — FHIR, HL7 v2, sandbox provisioning, and webhook delivery",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
+  "homepage": "https://hebrah.com",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -38,9 +39,24 @@
     "hebrah",
     "healthcare",
     "fhir",
+    "fhir-client",
+    "hl7",
+    "hl7v2",
+    "ehr",
+    "emr",
+    "sandbox",
     "webhooks",
-    "sdk"
+    "api-client",
+    "medical-api",
+    "healthcare-api",
+    "sdk",
+    "node-sdk",
+    "typescript",
+    "hipaa"
   ],
+  "bugs": {
+    "url": "https://github.com/Hebrah-inc/hebrah-sdk-node/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
