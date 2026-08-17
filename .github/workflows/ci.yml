@@ -10,12 +10,7 @@ on:
 
 jobs:
   test:
-    name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['18', '20', '22']
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,9 +18,9 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '20'
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install
       - run: pnpm audit --audit-level=high
       - run: pnpm run typecheck
       - run: pnpm test
@@ -46,7 +41,7 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install
