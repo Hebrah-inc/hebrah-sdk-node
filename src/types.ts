@@ -1,12 +1,14 @@
 export const DEFAULT_BASE_URL = 'https://api.hebrah.com'
 
 export interface HebrahClientOptions {
-  /** Sandbox or live API key (`hb_test_*` / `hb_live_*`). */
+  /** Sandbox or live API key (`hb_test_*` / `hb_live_*` / `hb_conn_*`). */
   apiKey: string
   /** Control plane base URL. Defaults to production. */
   baseUrl?: string
   /** Default sandbox connection id for methods that accept optional `connectionId`. */
   defaultConnectionId?: string
+  /** Default environment id for methods that accept optional `environmentId`. */
+  environmentId?: string
   /** When false, HebrahApiError.detail is omitted. Default true. */
   includeErrorDetail?: boolean
 }
@@ -274,3 +276,89 @@ export interface ResetSyntheticEhrResponse {
   reseed_via?: string | null
   message: string
 }
+
+export interface CreateEnvironmentParams {
+  name: string
+  clinic_type?: string
+  patient_cohort?: string
+  patient_count?: number
+  bed_count?: number
+  addons?: string[]
+}
+
+export interface EnvironmentSummary {
+  id: string
+  org_id: string
+  name: string
+  clinic_type: string
+  patient_cohort: string
+  status: string
+  addons: string[]
+  patient_count: number
+  bed_count: number
+  endpoints: Record<string, string>
+  wireguard_ip?: string | null
+  queries_run: number
+  bytes_egressed: number
+  hourly_rate_cents: number
+  total_cost_cents: number
+  connected_agents_count: number
+  last_active_at?: string | null
+  created_at: string
+}
+
+export interface EnvironmentDetail extends EnvironmentSummary {
+  connection_instructions: Record<string, unknown>
+  database_modules: Record<string, unknown>[]
+  connected_agents: Record<string, unknown>[]
+}
+
+export interface DbQueryParams {
+  sql: string
+  addon?: string
+  actor_type?: string
+  environmentId?: string
+}
+
+export interface DbQueryResponse {
+  rows: Record<string, unknown>[]
+  row_count: number
+  bytes_egressed: number
+  duration_ms: number
+  sql_executed: string
+}
+
+export interface WireguardConfigResponse {
+  filename: string
+  client_ip: string
+  config: string
+  instructions: string
+}
+
+export interface TriggerClinicScenarioParams {
+  scenario: string
+  patient_id?: string
+  notes?: string
+}
+
+export interface TriggerClinicScenarioResponse {
+  success: boolean
+  scenario: string
+  patient_id: string
+  hl7_event: string
+  broadcasted: boolean
+}
+
+export interface EnvironmentLogItem {
+  id: string
+  environment_id: string
+  actor_type: string
+  actor_id: string
+  event_type: string
+  summary: string
+  details: Record<string, unknown>
+  duration_ms?: number | null
+  status: string
+  created_at: string
+}
+

@@ -29,7 +29,16 @@ import type {
   AggregatorQueryParams,
   SyntheticEhrProfile,
   EhrModelSummary,
-  ResetSyntheticEhrResponse
+  ResetSyntheticEhrResponse,
+  CreateEnvironmentParams,
+  EnvironmentSummary,
+  EnvironmentDetail,
+  DbQueryParams,
+  DbQueryResponse,
+  WireguardConfigResponse,
+  TriggerClinicScenarioParams,
+  TriggerClinicScenarioResponse,
+  EnvironmentLogItem
 } from './types.js'
 
 export class HebrahClient {
@@ -37,7 +46,36 @@ export class HebrahClient {
     apiKey: string
     baseUrl: string
     defaultConnectionId?: string
+    environmentId?: string
     includeErrorDetail?: boolean
+  }
+
+  readonly environments = {
+    list: () => this.listEnvironments(),
+    get: (environmentId?: string) => this.getEnvironment(this.resolveEnvironmentId(environmentId)),
+    create: (params: CreateEnvironmentParams) => this.createEnvironment(params),
+    pause: (environmentId?: string) => this.pauseEnvironment(this.resolveEnvironmentId(environmentId)),
+    resume: (environmentId?: string) => this.resumeEnvironment(this.resolveEnvironmentId(environmentId)),
+    destroy: (environmentId?: string) => this.destroyEnvironment(this.resolveEnvironmentId(environmentId)),
+    addModule: (environmentId: string, moduleType: string, config?: Record<string, unknown>) =>
+      this.addEnvironmentModule(environmentId, moduleType, config),
+    removeModule: (environmentId: string, moduleId: string) =>
+      this.removeEnvironmentModule(environmentId, moduleId),
+    wireguardConfig: (environmentId?: string) =>
+      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId)),
+    listPatients: (environmentId?: string) =>
+      this.listEnvironmentPatients(this.resolveEnvironmentId(environmentId)),
+    getPatientChart: (environmentId: string, patientId: string) =>
+      this.getEnvironmentPatientChart(environmentId, patientId),
+    triggerScenario: (environmentId: string, params: TriggerClinicScenarioParams) =>
+      this.triggerEnvironmentScenario(environmentId, params),
+    logs: (environmentId?: string) =>
+      this.getEnvironmentLogs(this.resolveEnvironmentId(environmentId))
+  }
+
+  readonly db = {
+    query: (params: DbQueryParams, environmentId?: string) =>
+      this.queryEnvironmentDb(params, environmentId)
   }
 
   readonly sandbox = {
@@ -101,6 +139,7 @@ export class HebrahClient {
       apiKey: options.apiKey.trim(),
       baseUrl: resolveBaseUrl(options.baseUrl),
       defaultConnectionId: options.defaultConnectionId?.trim() || undefined,
+      environmentId: options.environmentId?.trim() || undefined,
       includeErrorDetail: options.includeErrorDetail
     }
   }
@@ -445,6 +484,152 @@ export class HebrahClient {
       this.config,
       `/v1/sandbox/synthetic-ehr/reset${this.connectionQuery(connectionId)}`,
       { method: 'POST' }
+    )
+  }
+
+  private resolveEnvironmentId(environmentId?: string): string {
+    const resolved = environmentId ?? this.config.environmentId
+    if (!resolved) {
+      throw new Error('environmentId is required (pass as argument or set in client options)')
+    }
+    return resolved
+  }
+
+  private listEnvironments(): Promise<EnvironmentSummary[]> {
+    return hebrahRequest<EnvironmentSummary[]>(this.config, '/v1/environments')
+  }
+
+  private getEnvironment(environmentId: string): Promise<EnvironmentDetail> {
+    return hebrahRequest<EnvironmentDetail>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}`
+    )
+  }
+
+  private createEnvironment(params: CreateEnvironmentParams): Promise<EnvironmentSummary> {
+    return hebrahRequest<EnvironmentSummary>(this.config, '/v1/environments', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    })
+  }
+
+  private pauseEnvironment(environmentId: string): Promise<EnvironmentSummary> {
+    return hebrahRequest<EnvironmentSummary>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/pause`,
+      { method: 'POST' }
+    )
+  }
+
+  private resumeEnvironment(environmentId: string): Promise<EnvironmentSummary> {
+    return hebrahRequest<EnvironmentSummary>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/resume`,
+      { method: 'POST' }
+    )
+  }
+
+  private destroyEnvironment(environmentId: string): Promise<{ success: boolean; message: string }> {
+    return hebrahRequest<{ success: boolean; message: string }>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}`,
+      { method: 'DELETE' }
+    )
+  }
+
+  private addEnvironmentModule(
+    environmentId: string,
+    moduleType: string,
+    config?: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/modules`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ module_type: moduleType, config: config ?? {} })
+      }
+    )
+  }
+
+  private removeEnvironmentModule(
+    environmentId: string,
+    moduleId: string
+  ): Promise<{ success: boolean; message: string }> {
+    return hebrahRequest<{ success: boolean; message: string }>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/modules/${encodeURIComponent(moduleId)}`,
+      { method: 'DELETE' }
+    )
+  }
+
+  private getEnvironmentWireguardConfig(
+    environmentId: string
+  ): Promise<WireguardConfigResponse> {
+    return hebrahRequest<WireguardConfigResponse>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/wireguard/config`
+    )
+  }
+
+  private listEnvironmentPatients(
+    environmentId: string
+  ): Promise<Record<string, unknown>[]> {
+    return hebrahRequest<Record<string, unknown>[]>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/patients`
+    )
+  }
+
+  private getEnvironmentPatientChart(
+    environmentId: string,
+    patientId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/patients/${encodeURIComponent(patientId)}`
+    )
+  }
+
+  private triggerEnvironmentScenario(
+    environmentId: string,
+    params: TriggerClinicScenarioParams
+  ): Promise<TriggerClinicScenarioResponse> {
+    return hebrahRequest<TriggerClinicScenarioResponse>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/scenarios/trigger`,
+      {
+        method: 'POST',
+        body: JSON.stringify(params)
+      }
+    )
+  }
+
+  private getEnvironmentLogs(
+    environmentId: string
+  ): Promise<EnvironmentLogItem[]> {
+    return hebrahRequest<EnvironmentLogItem[]>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(environmentId)}/logs`
+    )
+  }
+
+  private queryEnvironmentDb(
+    params: DbQueryParams,
+    environmentId?: string
+  ): Promise<DbQueryResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    return hebrahRequest<DbQueryResponse>(
+      this.config,
+      `/v1/environments/${encodeURIComponent(envId)}/db/query`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sql: params.sql,
+          addon: params.addon ?? 'postgres',
+          actor_type: params.actor_type ?? 'agent'
+        })
+      }
     )
   }
 }

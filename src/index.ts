@@ -11,6 +11,15 @@ export type {
   TriggerMockEventParams,
   TriggerMockEventResponse,
   WebhookEventEnvelope,
-  HebrahClientOptions
+  HebrahClientOptions,
+  CreateEnvironmentParams,
+  EnvironmentSummary,
+  EnvironmentDetail,
+  DbQueryParams,
+  DbQueryResponse,
+  WireguardConfigResponse,
+  TriggerClinicScenarioParams,
+  TriggerClinicScenarioResponse,
+  EnvironmentLogItem
 } from './types.js'
 export type { HebrahAgentHarnessOptions, LlmProvider } from './harness.js'

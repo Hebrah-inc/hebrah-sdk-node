@@ -250,6 +250,82 @@ describe('HebrahClient', () => {
     const headers = init?.headers as Record<string, string>
     expect(headers.Authorization).not.toContain('hb_test_key')
   })
+
+  it('environments.list calls /v1/environments with Bearer token', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify([{ id: 'env-1', name: 'St. Jude Sandbox' }]), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    const envs = await client.environments.list()
+
+    expect(envs).toHaveLength(1)
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/environments`,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer hb_test_key'
+        })
+      })
+    )
+  })
+
+  it('environments.create posts payload to /v1/environments', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 'env-new', name: 'Pediatric Clinic', status: 'active' }), { status: 200 })
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE })
+    const created = await client.environments.create({
+      name: 'Pediatric Clinic',
+      patient_cohort: 'pediatric',
+      addons: ['postgres', 'vector_qdrant']
+    })
+
+    expect(created.id).toBe('env-new')
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/environments`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer hb_test_key',
+          'Content-Type': 'application/json'
+        })
+      })
+    )
+  })
+
+  it('db.query posts SQL query with credential blindness', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          rows: [{ id: 'pat-1', first_name: 'Elena' }],
+          row_count: 1,
+          bytes_egressed: 84,
+          duration_ms: 3,
+          sql_executed: 'SELECT * FROM patients'
+        }),
+        { status: 200 }
+      )
+    )
+
+    const client = new HebrahClient({ apiKey: 'hb_test_key', baseUrl: BASE, environmentId: 'env-123' })
+    const res = await client.db.query({ sql: 'SELECT * FROM patients' })
+
+    expect(res.row_count).toBe(1)
+    expect(res.rows[0].first_name).toBe('Elena')
+    expect(fetch).toHaveBeenCalledWith(
+      `${BASE}/v1/environments/env-123/db/query`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          sql: 'SELECT * FROM patients',
+          addon: 'postgres',
+          actor_type: 'agent'
+        })
+      })
+    )
+  })
 })
 
 describe('resolveBaseUrl', () => {
