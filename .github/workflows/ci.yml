@@ -49,7 +49,7 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: Publish with npm token
         if: ${{ vars.PUBLISH_WITH_NPM_TOKEN == 'true' }}

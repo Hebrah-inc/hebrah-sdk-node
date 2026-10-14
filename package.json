@@ -1,7 +1,7 @@
 {
   "name": "@hebrah/sdk",
-  "version": "0.8.2",
-  "description": "Official Node.js SDK for the hebrah control plane API",
+  "version": "0.9.0",
+  "description": "Official Node.js SDK for the hebrah Isolated Health Environments & control plane API",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -37,7 +37,11 @@
   "keywords": [
     "hebrah",
     "healthcare",
+    "isolated-environments",
     "fhir",
+    "hl7",
+    "agents",
+    "mcp",
     "webhooks",
     "sdk"
   ],

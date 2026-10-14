@@ -1,5 +1,5 @@
 import { HebrahApiError } from './errors.js'
-import { errorDetail, fetchWithTimeout, hebrahRequest, resolveBaseUrl } from './http.js'
+import { errorDetail, fetchWithTimeout, hebrahRequest, resolveBaseUrl, safePathSegment } from './http.js'
 import type {
   HealthResponse,
   PatientListResponse,
@@ -35,11 +35,70 @@ import type {
   EnvironmentDetail,
   DbQueryParams,
   DbQueryResponse,
+  DbTablesResponse,
+  RecordOutcomeParams,
+  RecordOutcomeResponse,
+  ConnectAgentParams,
+  AutosaveConfigUpdateParams,
+  AutosaveConfigResponse,
   WireguardConfigResponse,
   TriggerClinicScenarioParams,
   TriggerClinicScenarioResponse,
-  EnvironmentLogItem
+  EnvironmentLogItem,
+  ListTargetsParams,
+  TargetSummary,
+  TargetDetail,
+  PackSummary,
+  OpenConnectionParams,
+  OpenConnectionResponse,
+  ConnectionSummary,
+  ConnectionDetail,
+  ConnectionQueryParams,
+  ConnectionQueryResponse,
+  TopLevelQueryParams,
+  ListConnectionAuditParams,
+  ConnectionAuditEvent,
+  AuditChainVerification,
+  AgentUsageResponse,
+  AgentWalletResponse,
+  AgentTopupParams,
+  AgentTopupResponse
 } from './types.js'
+
+export function interpolateSqlParams(sql: string, params?: unknown[]): string {
+  if (!params || params.length === 0) {
+    return sql
+  }
+  return sql.replace(/\$(\d+)\b/g, (match, indexStr: string) => {
+    const idx = Number.parseInt(indexStr, 10) - 1
+    if (idx < 0 || idx >= params.length) {
+      throw new Error(`Missing SQL parameter for placeholder ${match}`)
+    }
+    const val = params[idx]
+    if (val === null || val === undefined) {
+      return 'NULL'
+    }
+    if (typeof val === 'number') {
+      if (!Number.isFinite(val)) {
+        throw new Error(`Invalid numeric SQL parameter at ${match}`)
+      }
+      return String(val)
+    }
+    if (typeof val === 'boolean') {
+      return val ? 'TRUE' : 'FALSE'
+    }
+    if (val instanceof Date) {
+      return `'${val.toISOString().replace(/'/g, "''")}'`
+    }
+    if (typeof val === 'string') {
+      if (val.includes('\x00')) {
+        throw new Error(`Null byte not allowed in SQL parameter at ${match}`)
+      }
+      return `'${val.replace(/'/g, "''")}'`
+    }
+    return `'${JSON.stringify(val).replace(/'/g, "''")}'`
+  })
+}
 
 export class HebrahClient {
   private readonly config: {
@@ -57,25 +116,107 @@ export class HebrahClient {
     pause: (environmentId?: string) => this.pauseEnvironment(this.resolveEnvironmentId(environmentId)),
     resume: (environmentId?: string) => this.resumeEnvironment(this.resolveEnvironmentId(environmentId)),
     destroy: (environmentId?: string) => this.destroyEnvironment(this.resolveEnvironmentId(environmentId)),
-    addModule: (environmentId: string, moduleType: string, config?: Record<string, unknown>) =>
-      this.addEnvironmentModule(environmentId, moduleType, config),
-    removeModule: (environmentId: string, moduleId: string) =>
-      this.removeEnvironmentModule(environmentId, moduleId),
+    addModule: (
+      envOrModuleType: string,
+      moduleTypeOrConfig?: string | Record<string, unknown>,
+      config?: Record<string, unknown>
+    ) => {
+      if (typeof moduleTypeOrConfig === 'string') {
+        return this.addEnvironmentModule(envOrModuleType, moduleTypeOrConfig, config)
+      }
+      return this.addEnvironmentModule(
+        this.resolveEnvironmentId(),
+        envOrModuleType,
+        moduleTypeOrConfig
+      )
+    },
+    removeModule: (envOrModuleId: string, moduleId?: string) => {
+      if (moduleId !== undefined) {
+        return this.removeEnvironmentModule(envOrModuleId, moduleId)
+      }
+      return this.removeEnvironmentModule(this.resolveEnvironmentId(), envOrModuleId)
+    },
     wireguardConfig: (environmentId?: string) =>
       this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId)),
     listPatients: (environmentId?: string) =>
       this.listEnvironmentPatients(this.resolveEnvironmentId(environmentId)),
-    getPatientChart: (environmentId: string, patientId: string) =>
-      this.getEnvironmentPatientChart(environmentId, patientId),
-    triggerScenario: (environmentId: string, params: TriggerClinicScenarioParams) =>
-      this.triggerEnvironmentScenario(environmentId, params),
+    getPatientChart: (envOrPatientId: string, patientId?: string) => {
+      if (patientId !== undefined) {
+        return this.getEnvironmentPatientChart(envOrPatientId, patientId)
+      }
+      return this.getEnvironmentPatientChart(this.resolveEnvironmentId(), envOrPatientId)
+    },
+    triggerScenario: (
+      envOrParams: string | TriggerClinicScenarioParams,
+      params?: TriggerClinicScenarioParams
+    ) => {
+      if (typeof envOrParams === 'string') {
+        if (!params) {
+          throw new Error('triggerScenario requires scenario parameters')
+        }
+        return this.triggerEnvironmentScenario(envOrParams, params)
+      }
+      return this.triggerEnvironmentScenario(this.resolveEnvironmentId(), envOrParams)
+    },
+    connectAgent: (params?: ConnectAgentParams, environmentId?: string) =>
+      this.connectEnvironmentAgent(this.resolveEnvironmentId(environmentId), params),
+    getAutosave: (environmentId?: string) =>
+      this.getEnvironmentAutosave(this.resolveEnvironmentId(environmentId)),
+    updateAutosave: (params: AutosaveConfigUpdateParams, environmentId?: string) =>
+      this.updateEnvironmentAutosave(this.resolveEnvironmentId(environmentId), params),
+    tables: (environmentId?: string) =>
+      this.listEnvironmentDbTables(this.resolveEnvironmentId(environmentId)),
+    recordOutcome: (params: RecordOutcomeParams, environmentId?: string) =>
+      this.recordEnvironmentOutcome(params, environmentId),
     logs: (environmentId?: string) =>
       this.getEnvironmentLogs(this.resolveEnvironmentId(environmentId))
   }
 
   readonly db = {
-    query: (params: DbQueryParams, environmentId?: string) =>
-      this.queryEnvironmentDb(params, environmentId)
+    query: (
+      sqlOrParams: string | DbQueryParams,
+      paramsOrEnvId?: unknown[] | string,
+      environmentId?: string
+    ): Promise<DbQueryResponse> => {
+      if (typeof sqlOrParams === 'string') {
+        const sqlParams = Array.isArray(paramsOrEnvId) ? paramsOrEnvId : undefined
+        const envId = typeof paramsOrEnvId === 'string' ? paramsOrEnvId : environmentId
+        return this.queryEnvironmentDb({ sql: sqlOrParams, params: sqlParams }, envId)
+      }
+      const envId = typeof paramsOrEnvId === 'string' ? paramsOrEnvId : environmentId
+      return this.queryEnvironmentDb(sqlOrParams, envId)
+    },
+    recordOutcome: (params: RecordOutcomeParams, environmentId?: string) =>
+      this.recordEnvironmentOutcome(params, environmentId),
+    tables: (environmentId?: string) =>
+      this.listEnvironmentDbTables(this.resolveEnvironmentId(environmentId)),
+    exportVpnConfig: (environmentId?: string) =>
+      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId))
+  }
+
+  readonly connections = {
+    targets: (params?: ListTargetsParams) => this.listConnectionTargets(params),
+    target: (targetId: string) => this.getConnectionTarget(targetId),
+    packs: (params?: { all?: boolean }) => this.listConnectionPacks(params),
+    open: (params: OpenConnectionParams) => this.openScopedConnection(params),
+    list: (params?: { status?: string }) => this.listScopedConnections(params),
+    get: (connectionId?: string) => this.getScopedConnection(connectionId),
+    query: (connectionId: string, params: ConnectionQueryParams | string) =>
+      this.queryScopedConnection(
+        connectionId,
+        typeof params === 'string' ? { sql: params } : params
+      ),
+    revoke: (connectionId: string, reason?: string) =>
+      this.revokeScopedConnection(connectionId, reason),
+    audit: (connectionId: string, params?: ListConnectionAuditParams) =>
+      this.listConnectionAudit(connectionId, params),
+    verifyAudit: (connectionId?: string) => this.verifyConnectionAudit(connectionId)
+  }
+
+  readonly agent = {
+    usage: () => this.getAgentUsage(),
+    wallet: () => this.getAgentWallet(),
+    topup: (params: AgentTopupParams) => this.createAgentTopup(params)
   }
 
   readonly sandbox = {
@@ -112,8 +253,14 @@ export class HebrahClient {
   }
 
   readonly fhir = {
-    readPatient: (patientId: string, accessToken: string) =>
-      this.readFhirPatient(patientId, accessToken)
+    readPatient: (patientId: string, accessToken?: string) =>
+      this.readFhirPatient(patientId, accessToken),
+    search: (
+      resourceType: string,
+      params?: Record<string, string | number | boolean>,
+      environmentId?: string
+    ) => this.searchFhirResources(resourceType, params, environmentId),
+    metadata: () => this.getFhirMetadata()
   }
 
   readonly patients = {
@@ -148,6 +295,14 @@ export class HebrahClient {
     return connectionId ?? this.config.defaultConnectionId
   }
 
+  private requireConnectionId(connectionId?: string): string {
+    const resolved = this.resolveConnectionId(connectionId)
+    if (!resolved) {
+      throw new Error('connectionId is required (pass as argument or set defaultConnectionId in client options)')
+    }
+    return resolved
+  }
+
   private connectionQuery(connectionId?: string): string {
     const resolved = this.resolveConnectionId(connectionId)
     return resolved ? `?connection_id=${encodeURIComponent(resolved)}` : ''
@@ -155,6 +310,29 @@ export class HebrahClient {
 
   get baseUrl(): string {
     return this.config.baseUrl
+  }
+
+  async query(
+    params: TopLevelQueryParams
+  ): Promise<ConnectionQueryResponse | DbQueryResponse> {
+    const connId = params.connectionId ?? params.connection_id ?? (params.environmentId ? undefined : this.config.defaultConnectionId)
+    if (connId) {
+      const interpolated = interpolateSqlParams(params.sql, params.params)
+      return this.queryScopedConnection(connId, {
+        sql: interpolated,
+        maxRows: params.maxRows ?? params.max_rows
+      })
+    }
+    return this.queryEnvironmentDb(
+      {
+        sql: params.sql,
+        params: params.params,
+        addon: params.addon,
+        actor_type: params.actor_type,
+        environmentId: params.environmentId
+      },
+      params.environmentId
+    )
   }
 
   async health(): Promise<HealthResponse> {
@@ -193,7 +371,7 @@ export class HebrahClient {
   private getSandboxDomain(domainId: string): Promise<SandboxDomainSummary> {
     return hebrahRequest<SandboxDomainSummary>(
       this.config,
-      `/v1/sandbox/domains/${encodeURIComponent(domainId)}`
+      `/v1/sandbox/domains/${safePathSegment(domainId, 'domainId')}`
     )
   }
 
@@ -207,7 +385,7 @@ export class HebrahClient {
       : ''
     return hebrahRequest<Record<string, unknown>>(
       this.config,
-      `/v1/sandbox/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}${query}`
+      `/v1/sandbox/resources/${safePathSegment(resourceType, 'resourceType')}/${safePathSegment(resourceId, 'resourceId')}${query}`
     )
   }
 
@@ -217,7 +395,7 @@ export class HebrahClient {
   ): Promise<SandboxResourceListResponse> {
     return hebrahRequest<SandboxResourceListResponse>(
       this.config,
-      `/v1/sandbox/resources/${encodeURIComponent(resourceType)}${this.connectionQuery(connectionId)}`
+      `/v1/sandbox/resources/${safePathSegment(resourceType, 'resourceType')}${this.connectionQuery(connectionId)}`
     )
   }
 
@@ -227,7 +405,7 @@ export class HebrahClient {
   ): Promise<RunScenarioResponse> {
     return hebrahRequest<RunScenarioResponse>(
       this.config,
-      `/v1/sandbox/scenarios/${encodeURIComponent(scenarioId)}/run`,
+      `/v1/sandbox/scenarios/${safePathSegment(scenarioId, 'scenarioId')}/run`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -246,7 +424,7 @@ export class HebrahClient {
   private getPayerRules(payerId: string): Promise<PayerRules> {
     return hebrahRequest<PayerRules>(
       this.config,
-      `/v1/sandbox/payer-rules/${encodeURIComponent(payerId)}`
+      `/v1/sandbox/payer-rules/${safePathSegment(payerId, 'payerId')}`
     )
   }
 
@@ -280,7 +458,7 @@ export class HebrahClient {
   private getPatient(patientId: string, connectionId?: string): Promise<Record<string, unknown>> {
     return hebrahRequest<Record<string, unknown>>(
       this.config,
-      `/v1/patients/${encodeURIComponent(patientId)}${this.connectionQuery(connectionId)}`
+      `/v1/patients/${safePathSegment(patientId, 'patientId')}${this.connectionQuery(connectionId)}`
     )
   }
 
@@ -296,8 +474,8 @@ export class HebrahClient {
           ...(params.event ? { event: params.event } : {}),
           ...(params.patientId ? { patient_id: params.patientId } : {}),
           ...(this.resolveConnectionId(params.connectionId)
-          ? { connection_id: this.resolveConnectionId(params.connectionId) }
-          : {}),
+            ? { connection_id: this.resolveConnectionId(params.connectionId) }
+            : {}),
           ...(params.domainId ? { domain_id: params.domainId } : {}),
           ...(params.scenarioId ? { scenario_id: params.scenarioId } : {})
         })
@@ -326,7 +504,7 @@ export class HebrahClient {
   ): Promise<WebhookDeliveryReplayResponse> {
     return hebrahRequest<WebhookDeliveryReplayResponse>(
       this.config,
-      `/v1/webhooks/deliveries/${encodeURIComponent(deliveryId)}/replay`,
+      `/v1/webhooks/deliveries/${safePathSegment(deliveryId, 'deliveryId')}/replay`,
       { method: 'POST' }
     )
   }
@@ -411,16 +589,17 @@ export class HebrahClient {
 
   private async readFhirPatient(
     patientId: string,
-    accessToken: string
+    accessToken?: string
   ): Promise<Record<string, unknown>> {
     const base = this.config.baseUrl.replace(/\/$/, '')
+    const token = accessToken?.trim() || this.config.apiKey
     let response: Response
     try {
       response = await fetchWithTimeout(
-        `${base}/fhir/R4/Patient/${encodeURIComponent(patientId)}`,
+        `${base}/fhir/R4/Patient/${safePathSegment(patientId, 'patientId')}`,
         {
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${token}`,
             Accept: 'application/fhir+json'
           }
         }
@@ -436,6 +615,38 @@ export class HebrahClient {
       throw new HebrahApiError(`FHIR Patient read failed (${response.status})`, response.status, detail)
     }
     return response.json() as Promise<Record<string, unknown>>
+  }
+
+  private async searchFhirResources(
+    resourceType: string,
+    params?: Record<string, string | number | boolean>,
+    environmentId?: string
+  ): Promise<unknown> {
+    const safeType = safePathSegment(resourceType, 'resourceType')
+    const envId = environmentId ?? this.config.environmentId
+    if (resourceType.trim().toLowerCase() === 'patient' && envId) {
+      return this.listEnvironmentPatients(envId)
+    }
+    const search = new URLSearchParams()
+    const resolvedConn = this.resolveConnectionId()
+    if (resolvedConn) {
+      search.set('connection_id', resolvedConn)
+    }
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null) {
+          search.set(k, String(v))
+        }
+      }
+    }
+    const q = search.toString() ? `?${search.toString()}` : ''
+    return hebrahRequest<unknown>(this.config, `/v1/sandbox/resources/${safeType}${q}`)
+  }
+
+  private getFhirMetadata(): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(this.config, '/fhir/R4/metadata', {
+      headers: { Accept: 'application/fhir+json' }
+    })
   }
 
   private runMpiMatch(params: MpiMatchParams = {}): Promise<Record<string, unknown>> {
@@ -464,7 +675,7 @@ export class HebrahClient {
   private getPractitionerCredentialing(practitionerId: string): Promise<Record<string, unknown>> {
     return hebrahRequest<Record<string, unknown>>(
       this.config,
-      `/v1/sandbox/credentialing/practitioners/${encodeURIComponent(practitionerId)}`
+      `/v1/sandbox/credentialing/practitioners/${safePathSegment(practitionerId, 'practitionerId')}`
     )
   }
 
@@ -502,7 +713,7 @@ export class HebrahClient {
   private getEnvironment(environmentId: string): Promise<EnvironmentDetail> {
     return hebrahRequest<EnvironmentDetail>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}`
     )
   }
 
@@ -516,7 +727,7 @@ export class HebrahClient {
   private pauseEnvironment(environmentId: string): Promise<EnvironmentSummary> {
     return hebrahRequest<EnvironmentSummary>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/pause`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/pause`,
       { method: 'POST' }
     )
   }
@@ -524,7 +735,7 @@ export class HebrahClient {
   private resumeEnvironment(environmentId: string): Promise<EnvironmentSummary> {
     return hebrahRequest<EnvironmentSummary>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/resume`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/resume`,
       { method: 'POST' }
     )
   }
@@ -532,7 +743,7 @@ export class HebrahClient {
   private destroyEnvironment(environmentId: string): Promise<{ success: boolean; message: string }> {
     return hebrahRequest<{ success: boolean; message: string }>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}`,
       { method: 'DELETE' }
     )
   }
@@ -544,7 +755,7 @@ export class HebrahClient {
   ): Promise<Record<string, unknown>> {
     return hebrahRequest<Record<string, unknown>>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/modules`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/modules`,
       {
         method: 'POST',
         body: JSON.stringify({ module_type: moduleType, config: config ?? {} })
@@ -558,7 +769,7 @@ export class HebrahClient {
   ): Promise<{ success: boolean; message: string }> {
     return hebrahRequest<{ success: boolean; message: string }>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/modules/${encodeURIComponent(moduleId)}`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/modules/${safePathSegment(moduleId, 'moduleId')}`,
       { method: 'DELETE' }
     )
   }
@@ -568,7 +779,7 @@ export class HebrahClient {
   ): Promise<WireguardConfigResponse> {
     return hebrahRequest<WireguardConfigResponse>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/wireguard/config`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/wireguard/config`
     )
   }
 
@@ -577,7 +788,7 @@ export class HebrahClient {
   ): Promise<Record<string, unknown>[]> {
     return hebrahRequest<Record<string, unknown>[]>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/patients`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients`
     )
   }
 
@@ -587,7 +798,7 @@ export class HebrahClient {
   ): Promise<Record<string, unknown>> {
     return hebrahRequest<Record<string, unknown>>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/patients/${encodeURIComponent(patientId)}`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients/${safePathSegment(patientId, 'patientId')}`
     )
   }
 
@@ -597,10 +808,93 @@ export class HebrahClient {
   ): Promise<TriggerClinicScenarioResponse> {
     return hebrahRequest<TriggerClinicScenarioResponse>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/ehr/scenarios/trigger`,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/scenarios/trigger`,
       {
         method: 'POST',
         body: JSON.stringify(params)
+      }
+    )
+  }
+
+  private connectEnvironmentAgent(
+    environmentId: string,
+    params: ConnectAgentParams = {}
+  ): Promise<EnvironmentDetail> {
+    return hebrahRequest<EnvironmentDetail>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/agents/connect`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          agent_name: params.agent_name ?? params.agentName ?? 'hebrah-sdk-agent',
+          client: params.client ?? 'sdk-node'
+        })
+      }
+    )
+  }
+
+  private getEnvironmentAutosave(
+    environmentId: string
+  ): Promise<AutosaveConfigResponse> {
+    return hebrahRequest<AutosaveConfigResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/autosave`
+    )
+  }
+
+  private updateEnvironmentAutosave(
+    environmentId: string,
+    params: AutosaveConfigUpdateParams
+  ): Promise<AutosaveConfigResponse> {
+    return hebrahRequest<AutosaveConfigResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/autosave`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(params)
+      }
+    )
+  }
+
+  private listEnvironmentDbTables(
+    environmentId: string
+  ): Promise<DbTablesResponse> {
+    return hebrahRequest<DbTablesResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/db/tables`
+    )
+  }
+
+  private recordEnvironmentOutcome(
+    params: RecordOutcomeParams,
+    environmentId?: string
+  ): Promise<RecordOutcomeResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const outcomeType = params.outcome_type ?? params.outcomeType
+    if (!outcomeType?.trim()) {
+      throw new Error('outcomeType is required')
+    }
+    if (!params.summary?.trim()) {
+      throw new Error('summary is required')
+    }
+    const patientId = params.patient_id ?? params.patientId
+    const sourceAgent = params.source_agent ?? params.sourceAgent ?? 'hebrah-sdk-node'
+    const agentId = params.agent_id ?? params.agentId
+    const score = params.score ?? params.risk_score ?? params.riskScore
+    return hebrahRequest<RecordOutcomeResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/db/outcomes`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(patientId ? { patient_id: patientId } : {}),
+          outcome_type: outcomeType.trim(),
+          source_agent: sourceAgent,
+          ...(agentId ? { agent_id: agentId } : {}),
+          ...(score !== undefined ? { score, risk_score: score } : {}),
+          summary: params.summary,
+          payload: params.payload ?? {}
+        })
       }
     )
   }
@@ -610,7 +904,7 @@ export class HebrahClient {
   ): Promise<EnvironmentLogItem[]> {
     return hebrahRequest<EnvironmentLogItem[]>(
       this.config,
-      `/v1/environments/${encodeURIComponent(environmentId)}/logs`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/logs`
     )
   }
 
@@ -619,17 +913,149 @@ export class HebrahClient {
     environmentId?: string
   ): Promise<DbQueryResponse> {
     const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const interpolatedSql = interpolateSqlParams(params.sql, params.params)
     return hebrahRequest<DbQueryResponse>(
       this.config,
-      `/v1/environments/${encodeURIComponent(envId)}/db/query`,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/db/query`,
       {
         method: 'POST',
         body: JSON.stringify({
-          sql: params.sql,
+          sql: interpolatedSql,
           addon: params.addon ?? 'postgres',
           actor_type: params.actor_type ?? 'agent'
         })
       }
     )
   }
+
+  private listConnectionTargets(params: ListTargetsParams = {}): Promise<TargetSummary[]> {
+    const search = new URLSearchParams()
+    if (params.pack) search.set('pack', params.pack)
+    if (params.all) search.set('all', 'true')
+    if (params.healthy) search.set('healthy', 'true')
+    const q = search.toString() ? `?${search.toString()}` : ''
+    return hebrahRequest<TargetSummary[]>(this.config, `/v1/connections/targets${q}`)
+  }
+
+  private getConnectionTarget(targetId: string): Promise<TargetDetail> {
+    return hebrahRequest<TargetDetail>(
+      this.config,
+      `/v1/connections/targets/${safePathSegment(targetId, 'targetId')}`
+    )
+  }
+
+  private listConnectionPacks(params: { all?: boolean } = {}): Promise<PackSummary[]> {
+    const q = params.all ? '?all=true' : ''
+    return hebrahRequest<PackSummary[]>(this.config, `/v1/connections/packs${q}`)
+  }
+
+  private openScopedConnection(params: OpenConnectionParams): Promise<OpenConnectionResponse> {
+    const targetId = params.target_id ?? params.targetId
+    if (!targetId?.trim()) {
+      throw new Error('targetId is required')
+    }
+    return hebrahRequest<OpenConnectionResponse>(this.config, '/v1/connections', {
+      method: 'POST',
+      body: JSON.stringify({
+        target_id: targetId.trim(),
+        scopes: params.scopes,
+        tier: params.tier ?? 'container',
+        ttl_seconds: params.ttl_seconds ?? params.ttlSeconds ?? 3600
+      })
+    })
+  }
+
+  private listScopedConnections(params: { status?: string } = {}): Promise<ConnectionSummary[]> {
+    const q = params.status ? `?status=${encodeURIComponent(params.status)}` : ''
+    return hebrahRequest<ConnectionSummary[]>(this.config, `/v1/connections${q}`)
+  }
+
+  private getScopedConnection(connectionId?: string): Promise<ConnectionDetail> {
+    const resolved = this.requireConnectionId(connectionId)
+    return hebrahRequest<ConnectionDetail>(
+      this.config,
+      `/v1/connections/${safePathSegment(resolved, 'connectionId')}`
+    )
+  }
+
+  private queryScopedConnection(
+    connectionId: string,
+    params: ConnectionQueryParams
+  ): Promise<ConnectionQueryResponse> {
+    const maxRows = params.max_rows ?? params.maxRows
+    return hebrahRequest<ConnectionQueryResponse>(
+      this.config,
+      `/v1/connections/${safePathSegment(connectionId, 'connectionId')}/query`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sql: params.sql,
+          ...(maxRows !== undefined ? { max_rows: maxRows } : {})
+        })
+      }
+    )
+  }
+
+  private revokeScopedConnection(
+    connectionId: string,
+    reason?: string
+  ): Promise<{ connectionId: string; status: string }> {
+    return hebrahRequest<{ connectionId: string; status: string }>(
+      this.config,
+      `/v1/connections/${safePathSegment(connectionId, 'connectionId')}/revoke`,
+      {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {})
+      }
+    )
+  }
+
+  private listConnectionAudit(
+    connectionId: string,
+    params: ListConnectionAuditParams = {}
+  ): Promise<ConnectionAuditEvent[]> {
+    const search = new URLSearchParams()
+    if (params.limit !== undefined) search.set('limit', String(params.limit))
+    const eventType = params.event_type ?? params.eventType
+    if (eventType) search.set('event_type', eventType)
+    const q = search.toString() ? `?${search.toString()}` : ''
+    return hebrahRequest<ConnectionAuditEvent[]>(
+      this.config,
+      `/v1/connections/${safePathSegment(connectionId, 'connectionId')}/audit${q}`
+    )
+  }
+
+  private verifyConnectionAudit(connectionId?: string): Promise<AuditChainVerification> {
+    const resolved = this.requireConnectionId(connectionId)
+    return hebrahRequest<AuditChainVerification>(
+      this.config,
+      `/v1/audit/verify?connection_id=${encodeURIComponent(resolved)}`
+    )
+  }
+
+  private getAgentUsage(): Promise<AgentUsageResponse> {
+    return hebrahRequest<AgentUsageResponse>(this.config, '/v1/agent/account/usage')
+  }
+
+  private getAgentWallet(): Promise<AgentWalletResponse> {
+    return hebrahRequest<AgentWalletResponse>(this.config, '/v1/agent/wallet')
+  }
+
+  private createAgentTopup(params: AgentTopupParams): Promise<AgentTopupResponse> {
+    const amountCents = params.amount_cents ?? params.amountCents
+    if (amountCents === undefined) {
+      throw new Error('amountCents is required')
+    }
+    const successUrl = params.success_url ?? params.successUrl
+    const cancelUrl = params.cancel_url ?? params.cancelUrl
+    return hebrahRequest<AgentTopupResponse>(this.config, '/v1/agent/topup', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount_cents: amountCents,
+        ...(successUrl ? { success_url: successUrl } : {}),
+        ...(cancelUrl ? { cancel_url: cancelUrl } : {})
+      })
+    })
+  }
 }
+

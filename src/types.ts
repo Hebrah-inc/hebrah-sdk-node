@@ -315,6 +315,7 @@ export interface EnvironmentDetail extends EnvironmentSummary {
 
 export interface DbQueryParams {
   sql: string
+  params?: unknown[]
   addon?: string
   actor_type?: string
   environmentId?: string
@@ -326,6 +327,74 @@ export interface DbQueryResponse {
   bytes_egressed: number
   duration_ms: number
   sql_executed: string
+}
+
+export interface DbTableColumn {
+  name: string
+  type: string
+  nullable: boolean
+}
+
+export interface DbTableInfo {
+  name: string
+  table_name: string
+  schema: string
+  row_count: number
+  column_count: number
+  columns: DbTableColumn[]
+  category: string
+  description: string
+}
+
+export interface DbTablesResponse {
+  environment_id: string
+  schema: string
+  table_count: number
+  total_rows: number
+  autosave_config: Record<string, boolean>
+  tables: DbTableInfo[]
+}
+
+export interface RecordOutcomeParams {
+  patientId?: string
+  patient_id?: string
+  outcomeType?: string
+  outcome_type?: string
+  sourceAgent?: string
+  source_agent?: string
+  agentId?: string
+  agent_id?: string
+  score?: number
+  riskScore?: number
+  risk_score?: number
+  summary: string
+  payload?: Record<string, unknown>
+  environmentId?: string
+}
+
+export interface RecordOutcomeResponse {
+  success: boolean
+  outcome: Record<string, unknown>
+}
+
+export interface ConnectAgentParams {
+  agent_name?: string
+  agentName?: string
+  client?: string
+}
+
+export interface AutosaveConfigUpdateParams {
+  enabled?: boolean
+  sync_patients?: boolean
+  sync_hl7_events?: boolean
+  sync_x12_claims?: boolean
+  sync_vector_embeddings?: boolean
+}
+
+export interface AutosaveConfigResponse {
+  success?: boolean
+  environment_id: string
+  autosave_config: Record<string, boolean>
 }
 
 export interface WireguardConfigResponse {
@@ -361,4 +430,189 @@ export interface EnvironmentLogItem {
   status: string
   created_at: string
 }
+
+export interface ListTargetsParams {
+  pack?: string
+  all?: boolean
+  healthy?: boolean
+}
+
+export interface TargetSummary {
+  target_id: string
+  target?: string
+  connector: string
+  label: string
+  description: string
+  pack_id?: string
+  pack_label?: string
+  pack_status?: string
+  tables: string[]
+  required_scopes?: string[]
+  example_scopes?: string[]
+  sample_queries?: string[]
+  tiers?: string[]
+  writes_allowed?: boolean
+  health?: string
+  relay_required?: boolean
+  wave?: number
+}
+
+export type TargetDetail = TargetSummary
+
+export interface PackSummary {
+  pack_id: string
+  label: string
+  tagline?: string
+  status?: string
+  tier_note?: string
+  target_count: number
+  connector_count: number
+  wave?: number
+}
+
+export interface OpenConnectionParams {
+  targetId?: string
+  target_id?: string
+  scopes: string[]
+  tier?: 'container' | 'vm'
+  ttlSeconds?: number
+  ttl_seconds?: number
+}
+
+export interface OpenConnectionResponse {
+  connectionId: string
+  target: string
+  target_id: string
+  scopes: string[]
+  tier: string
+  scope_snapshot: Record<string, unknown>
+  ttl_seconds: number
+  expires_at: string
+  audit_genesis_hash: string
+}
+
+export interface ConnectionSummary {
+  connectionId: string
+  target_id: string
+  scopes: string[]
+  tier: string
+  ttl_seconds: number
+  expires_at: string
+  status: string
+  queries_run: number
+  bytes_egressed: number
+  cost_cents: number
+  last_query_at?: string | null
+}
+
+export interface ConnectionDetail extends ConnectionSummary {
+  created_at?: string | null
+  revoked_at?: string | null
+  revoked_reason?: string | null
+}
+
+export interface ConnectionQueryParams {
+  sql: string
+  maxRows?: number
+  max_rows?: number
+}
+
+export interface TopLevelQueryParams extends ConnectionQueryParams {
+  connectionId?: string
+  connection_id?: string
+  environmentId?: string
+  params?: unknown[]
+  addon?: string
+  actor_type?: string
+}
+
+export interface ConnectionQueryResponse {
+  rows: Record<string, unknown>[]
+  row_count: number
+  audit_event_id: string
+  bytes_egressed: number
+  cost_cents: number
+  scope_applied: Record<string, unknown>
+  sql_executed: string
+}
+
+export interface ListConnectionAuditParams {
+  limit?: number
+  eventType?: string
+  event_type?: string
+}
+
+export interface ConnectionAuditEvent {
+  id: string
+  sequence: number
+  event_type: string
+  sql_fingerprint?: string | null
+  sql_executed?: string | null
+  bytes_egressed: number
+  rows_returned: number
+  cost_cents: number
+  prev_hash: string
+  event_hash: string
+  created_at: string
+  error_code?: string | null
+  error_message?: string | null
+}
+
+export interface AuditChainVerification {
+  verified: boolean
+  events_checked: number
+  genesis_hash?: string | null
+  broken_at?: number | null
+}
+
+export interface AgentUsageResponse {
+  orgId: string
+  orgName: string
+  tier: string
+  period: {
+    start: string
+    end: string
+  }
+  queries: number
+  queriesDenied: number
+  egressBytes: number
+  quota: {
+    queries: number
+    egressBytes: number
+  }
+  remaining: {
+    queries: number
+    egressBytes: number
+  }
+  balanceCents: number
+  trial?: {
+    expiresAt?: string | null
+  }
+}
+
+export interface AgentWalletResponse {
+  org_id?: string
+  balance_cents: number
+  auto_reload_enabled?: boolean
+  auto_reload_threshold_cents?: number | null
+  auto_reload_amount_cents?: number | null
+  [key: string]: unknown
+}
+
+export interface AgentTopupParams {
+  amountCents?: number
+  amount_cents?: number
+  successUrl?: string
+  success_url?: string
+  cancelUrl?: string
+  cancel_url?: string
+}
+
+export interface AgentTopupResponse {
+  session_id: string
+  url: string
+  amount_cents: number
+  mode: string
+}
+
 

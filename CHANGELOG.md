@@ -5,20 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- `scripts/smoke.mjs` now uses the non-deprecated `client.sandbox.resource('Patient', id)` path (was `client.patients.get(id)` which emits `DeprecationWarning` since v0.8).
-- Pinned `postcss >=8.5.23`, `nanoid >=3.3.18`, and `esbuild >=0.28.1` via `pnpm.overrides` to clear 5 dev-only transitive Dependabot advisories (3 high, 1 moderate, 1 low) coming through `tsup`. No runtime impact — all affected packages are dev dependencies.
+## [0.9.0] — 2026-10-14
 
 ### Added
 
-- `CONTRIBUTING.md` describing dev setup, scripts, public-API rules, and the release process.
-- `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1).
-- Issue templates (bug report, feature request, docs) and PR template under `.github/`.
-- OSS discovery badges in README (License, npm version + downloads, Node engine, TypeScript strict, GitHub stars + issues).
-- CI matrix now tests Node 18, 20, and 22.
+- **Isolated Health Environments (`client.environments`)**:
+  - `list()`, `create()`, `get()`, `delete()`, `addModule()`, `removeModule()`, `listPatients()`, `getPatientChart()`, `triggerScenario()`, `connectAgent()`, `getAutosave()`, `updateAutosave()`, `tables()`, `recordOutcome()`, and `wireguardConfig()`.
+  - Overloads on `getPatientChart(patientId)`, `triggerScenario(params)`, `addModule(moduleId)`, and `removeModule(moduleId)` that automatically use `config.environmentId` when configured on `HebrahClient`.
+- **Credential-Blind Database Pack (`client.db`)**:
+  - `client.db.query(sql, params?, environmentId?)` supporting both `(sql, params)` positional `$1, $2` parameter interpolation and `{ sql, params, addon, actor_type }` object syntax.
+  - `client.db.recordOutcome(params, environmentId?)` (`POST /v1/environments/{id}/db/outcomes`).
+  - `client.db.tables(environmentId?)` (`GET /v1/environments/{id}/db/tables`).
+  - `client.db.wireguardConfig(environmentId?)` and `client.db.exportVpnConfig(environmentId?)` (`GET /v1/environments/{id}/vpn/wireguard-config`).
+- **Scoped Connections & Catalog (`client.connections` + `client.query`)**:
+  - `targets()`, `target(id)`, `packs()`, `open()`, `list()`, `get()`, `query()`, `revoke()`, `audit()`, `verifyAudit()`, and top-level `client.query()`.
+- **Agent Wallet & Metering (`client.agent`)**:
+  - `usage()`, `wallet()`, and `topup()`.
+- **FHIR R4 (`client.fhir`)**:
+  - `fhir.search(resourceType, params?, environmentId?)`, `fhir.metadata()`, and optional `accessToken` fallback to `apiKey` on `fhir.readPatient(patientId, accessToken?)`.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, GitHub issue/PR templates, and Node 18/20/22 CI matrix.
+
+### Security
+
+- Added `safePathSegment(value, name)` across all URL path interpolations to block empty segments, `.` / `..` path traversal, and control characters.
+- Enforced `assertSafeBaseUrl` (`https://` required for non-localhost URLs) and `fetchWithTimeout` across `HebrahAgentHarness` (`mcpUrl`, `hebrahApiUrl`, `integrationAgentUrl`).
+- Hardened `verifyWebhookSignature` to reject empty/whitespace `webhookSecret` values and support optional `sha256=` header prefixes before constant-time `timingSafeEqual`.
+- Locked `.github/workflows/ci.yml` publish job to `pnpm install --frozen-lockfile`.
+- Pinned `postcss >=8.5.23`, `nanoid >=3.3.18`, and `esbuild >=0.28.1` via `pnpm.overrides`.
+
+### Fixed
+
+- `scripts/smoke.mjs` now uses the non-deprecated `client.sandbox.resource('Patient', id)` path.
 
 ## [0.8.2] — 2026-08-17
 
@@ -52,7 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sandbox, HL7, webhook, SMART, and FHIR surface over `/v1/sandbox/*`, `/v1/webhooks/*`, `/v1/smart/*`, `/oauth/token`, `/fhir/R4/*`.
 - `verifyWebhookSignature(rawBody, signatureHeader, secret)` helper.
 
-[Unreleased]: https://github.com/Hebrah-inc/hebrah-sdk-node/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/Hebrah-inc/hebrah-sdk-node/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Hebrah-inc/hebrah-sdk-node/releases/tag/sdk-node-v0.9.0
 [0.8.2]: https://github.com/Hebrah-inc/hebrah-sdk-node/releases/tag/sdk-node-v0.8.2
 [0.8.0]: https://github.com/Hebrah-inc/hebrah-sdk-node/releases/tag/sdk-node-v0.8.0
 [0.1.0]: https://github.com/Hebrah-inc/hebrah-sdk-node/releases/tag/sdk-node-v0.1.0

@@ -101,3 +101,18 @@ export function resolveBaseUrl(baseUrl?: string): string {
   assertSafeBaseUrl(resolved)
   return resolved
 }
+
+export function safePathSegment(value: string, name = 'id'): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${name} is required`)
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    throw new Error(`${name} is required`)
+  }
+  if (trimmed === '.' || trimmed === '..' || /[\x00-\x1f\x7f]/.test(trimmed)) {
+    throw new Error(`Invalid ${name}`)
+  }
+  return encodeURIComponent(trimmed)
+}
+

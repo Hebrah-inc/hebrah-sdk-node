@@ -10,6 +10,10 @@ export function verifyWebhookSignature(
   signatureHeader: string | null | undefined,
   webhookSecret: string
 ): WebhookEventEnvelope {
+  if (!webhookSecret || typeof webhookSecret !== 'string' || !webhookSecret.trim()) {
+    throw new Error('webhookSecret is required')
+  }
+
   if (!signatureHeader || typeof signatureHeader !== 'string') {
     throw new Error('Missing X-Hebrah-Signature header')
   }
@@ -20,7 +24,8 @@ export function verifyWebhookSignature(
     .update(raw)
     .digest('hex')
 
-  const sigBuffer = Buffer.from(signatureHeader, 'utf8')
+  const normalizedSig = signatureHeader.trim().replace(/^sha256=/i, '')
+  const sigBuffer = Buffer.from(normalizedSig, 'utf8')
   const expectedBuffer = Buffer.from(expected, 'utf8')
 
   if (sigBuffer.length !== expectedBuffer.length) {
