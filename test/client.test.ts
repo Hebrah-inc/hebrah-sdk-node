@@ -683,5 +683,68 @@ describe('verifyWebhookSignature', () => {
       'Invalid webhook signature'
     )
   })
+
+  it('enforces maxAgeSeconds replay window when configured', () => {
+    const secret = 'hbsec_test'
+    const nowMs = Date.parse('2026-10-14T12:00:00Z')
+    const stalePayload = {
+      event: 'patient.admitted',
+      connection_id: 'conn-1',
+      timestamp: '2026-10-14T11:40:00Z'
+    }
+    const raw = Buffer.from(JSON.stringify(stalePayload))
+    const sig = createHmac('sha256', secret).update(raw).digest('hex')
+
+    expect(() =>
+      verifyWebhookSignature(raw, sig, secret, { maxAgeSeconds: 300, nowMs })
+    ).toThrow('Webhook timestamp outside allowed replay window')
+
+    const freshPayload = {
+      event: 'patient.admitted',
+      connection_id: 'conn-1',
+      timestamp: '2026-10-14T11:58:00Z'
+    }
+    const freshRaw = Buffer.from(JSON.stringify(freshPayload))
+    const freshSig = createHmac('sha256', secret).update(freshRaw).digest('hex')
+    expect(
+      verifyWebhookSignature(freshRaw, freshSig, secret, { maxAgeSeconds: 300, nowMs }).event
+    ).toBe('patient.admitted')
+  })
+
+  it('hides apiKey and pat from JSON.stringify and scrubs secrets in errors', async () => {
+    const client = new HebrahClient({
+      apiKey: 'hb_live_secret9999888877776666',
+      baseUrl: BASE
+    })
+    expect(JSON.stringify(client)).not.toContain('hb_live_secret9999888877776666')
+
+    const harness = new HebrahAgentHarness({
+      mcpUrl: 'https://mcp.hebrah.com/mcp',
+      pat: 'hb_pat_secret9999888877776666',
+      hebrahApiUrl: BASE
+    })
+    expect(JSON.stringify(harness)).not.toContain('hb_pat_secret9999888877776666')
+
+    await expect(
+      harness.researchAndModelEhr({
+        vendor: 'Epic',
+        connectionId: 'conn-1',
+        docUrls: ['http://169.254.169.254/latest/meta-data/']
+      })
+    ).rejects.toThrow(/private, loopback, or metadata/)
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('upstream leak: hb_live_leaked1234567890 and enc:v1:secretcipher', {
+        status: 500
+      })
+    )
+    await expect(client.environments.list()).rejects.toSatisfy((err: HebrahApiError) => {
+      expect(err.message).not.toContain('hb_live_leaked1234567890')
+      expect(err.message).not.toContain('enc:v1:secretcipher')
+      expect(err.detail).toContain('[REDACTED_HEBRAH_TOKEN]')
+      return true
+    })
+  })
 })
+
 

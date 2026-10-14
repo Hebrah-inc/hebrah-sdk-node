@@ -101,7 +101,7 @@ export function interpolateSqlParams(sql: string, params?: unknown[]): string {
 }
 
 export class HebrahClient {
-  private readonly config: {
+  private readonly config!: {
     apiKey: string
     baseUrl: string
     defaultConnectionId?: string
@@ -282,13 +282,38 @@ export class HebrahClient {
     if (!options.apiKey?.trim()) {
       throw new Error('apiKey is required')
     }
-    this.config = {
+    const cfg = {
       apiKey: options.apiKey.trim(),
       baseUrl: resolveBaseUrl(options.baseUrl),
       defaultConnectionId: options.defaultConnectionId?.trim() || undefined,
       environmentId: options.environmentId?.trim() || undefined,
       includeErrorDetail: options.includeErrorDetail
     }
+    Object.defineProperty(cfg, 'apiKey', {
+      value: options.apiKey.trim(),
+      enumerable: false,
+      writable: false,
+      configurable: false
+    })
+    Object.defineProperty(this, 'config', {
+      value: cfg,
+      enumerable: false,
+      writable: false,
+      configurable: false
+    })
+  }
+
+  toJSON(): Record<string, unknown> {
+    return {
+      baseUrl: this.config.baseUrl,
+      defaultConnectionId: this.config.defaultConnectionId,
+      environmentId: this.config.environmentId,
+      apiKey: '[REDACTED]'
+    }
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return `HebrahClient { baseUrl: '${this.config.baseUrl}', apiKey: '[REDACTED]' }`
   }
 
   private resolveConnectionId(connectionId?: string): string | undefined {

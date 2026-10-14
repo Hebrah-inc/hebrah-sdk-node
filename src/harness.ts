@@ -1,4 +1,9 @@
-import { assertSafeBaseUrl, fetchWithTimeout } from './http.js'
+import {
+  assertSafeBaseUrl,
+  assertSafeExternalUrl,
+  fetchWithTimeout,
+  redactSecrets
+} from './http.js'
 
 export type LlmProvider = 'openai' | 'anthropic' | 'azure' | 'ollama' | 'openai_compatible'
 
@@ -44,18 +49,18 @@ async function mcpCall(
     timeoutMs
   )
   if (!res.ok) {
-    throw new Error(`MCP ${tool} failed (${res.status}): ${await res.text()}`)
+    throw new Error(`MCP ${tool} failed (${res.status}): ${redactSecrets(await res.text())}`)
   }
   const payload = await res.json() as { result?: { content?: Array<{ text?: string }> }, error?: { message?: string } }
   if (payload.error) {
-    throw new Error(payload.error.message ?? 'MCP tool error')
+    throw new Error(redactSecrets(payload.error.message ?? 'MCP tool error'))
   }
   const text = payload.result?.content?.[0]?.text
   return text ? JSON.parse(text) : payload.result
 }
 
 export class HebrahAgentHarness {
-  private readonly opts: HebrahAgentHarnessOptions
+  private readonly opts!: HebrahAgentHarnessOptions
 
   constructor(options: HebrahAgentHarnessOptions) {
     if (!options.pat?.trim()) {
@@ -71,11 +76,44 @@ export class HebrahAgentHarness {
     if (options.integrationAgentUrl) {
       assertSafeBaseUrl(options.integrationAgentUrl.trim().replace(/\/$/, ''))
     }
-    this.opts = {
+    const sanitizedLlm = options.llm ? { ...options.llm } : undefined
+    if (sanitizedLlm && sanitizedLlm.apiKey) {
+      Object.defineProperty(sanitizedLlm, 'apiKey', {
+        value: sanitizedLlm.apiKey,
+        enumerable: false,
+        writable: false,
+        configurable: false
+      })
+    }
+    const optsCopy: HebrahAgentHarnessOptions = {
       ...options,
+      llm: sanitizedLlm,
       mcpUrl: options.mcpUrl.trim().replace(/\/$/, ''),
       pat: options.pat.trim()
     }
+    Object.defineProperty(optsCopy, 'pat', {
+      value: options.pat.trim(),
+      enumerable: false,
+      writable: false,
+      configurable: false
+    })
+    Object.defineProperty(this, 'opts', {
+      value: optsCopy,
+      enumerable: false,
+      writable: false,
+      configurable: false
+    })
+  }
+
+  toJSON(): Record<string, unknown> {
+    return {
+      mcpUrl: this.opts.mcpUrl,
+      pat: '[REDACTED]'
+    }
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return `HebrahAgentHarness { mcpUrl: '${this.opts.mcpUrl}', pat: '[REDACTED]' }`
   }
 
   async getDeveloperDoc(connectionId?: string) {
@@ -116,8 +154,9 @@ export class HebrahAgentHarness {
   }) {
     const agentUrl = (this.opts.integrationAgentUrl ?? 'http://localhost:3050').replace(/\/$/, '')
     assertSafeBaseUrl(agentUrl)
+    const validatedUrls = (input.docUrls ?? []).map((u) => assertSafeExternalUrl(u, 'docUrl'))
     const chunkIds: string[] = []
-    for (const url of input.docUrls ?? []) {
+    for (const url of validatedUrls) {
       const ingest = await fetchWithTimeout(
         `${agentUrl}/v1/ingest`,
         {
@@ -161,7 +200,7 @@ export class HebrahAgentHarness {
       this.opts.timeoutMs
     )
     if (!gen.ok) {
-      throw new Error(`Model generation failed: ${await gen.text()}`)
+      throw new Error(`Model generation failed: ${redactSecrets(await gen.text())}`)
     }
     return gen.json()
   }
