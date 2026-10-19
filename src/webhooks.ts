@@ -26,6 +26,10 @@ export function verifyWebhookSignature(
     throw new Error('Missing X-Hebrah-Signature header')
   }
 
+  if (typeof rawBody !== 'string' && !Buffer.isBuffer(rawBody)) {
+    throw new Error('rawBody must be a string or Buffer')
+  }
+
   const raw = typeof rawBody === 'string' ? Buffer.from(rawBody, 'utf8') : rawBody
 
   const expected = createHmac('sha256', webhookSecret)
@@ -47,7 +51,23 @@ export function verifyWebhookSignature(
     throw new Error('Invalid webhook signature')
   }
 
-  const envelope = JSON.parse(raw.toString('utf8')) as WebhookEventEnvelope
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw.toString('utf8'), (key, value) => {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        return undefined
+      }
+      return value
+    })
+  } catch {
+    throw new Error('Invalid webhook payload JSON')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Webhook payload must be a JSON object')
+  }
+
+  const envelope = parsed as WebhookEventEnvelope
 
   if (options?.maxAgeSeconds !== undefined && options.maxAgeSeconds > 0) {
     const rawTs = (envelope as unknown as Record<string, unknown>).timestamp

@@ -1,8 +1,15 @@
 export { HebrahClient, interpolateSqlParams } from './client.js'
 export { HebrahAgentHarness } from './harness.js'
-export { HebrahApiError } from './errors.js'
+export { HebrahApiError, redactSecrets } from './errors.js'
 export { verifyWebhookSignature } from './webhooks.js'
-export { safePathSegment, assertSafeBaseUrl } from './http.js'
+export type { VerifyWebhookOptions } from './webhooks.js'
+export {
+  safePathSegment,
+  assertSafeBaseUrl,
+  assertSafeExternalUrl,
+  validateToken,
+  validateTimeoutMs
+} from './http.js'
 export { DEFAULT_BASE_URL } from './types.js'
 export type {
   HealthResponse,
@@ -30,6 +37,13 @@ export type {
   TriggerClinicScenarioParams,
   TriggerClinicScenarioResponse,
   EnvironmentLogItem,
+  ConsultArchitectParams,
+  ConsultArchitectResponse,
+  AdmitPatientsParams,
+  AdmitPatientsResponse,
+  ConsultStudioParams,
+  ConsultStudioResponse,
+  ListEnvironmentPatientsParams,
   ListTargetsParams,
   TargetSummary,
   TargetDetail,

@@ -1,5 +1,11 @@
-import { HebrahApiError } from './errors.js'
-import { errorDetail, fetchWithTimeout, hebrahRequest, resolveBaseUrl, safePathSegment } from './http.js'
+import {
+  assertSafeBaseUrl,
+  hebrahRequest,
+  resolveBaseUrl,
+  safePathSegment,
+  validateTimeoutMs,
+  validateToken
+} from './http.js'
 import type {
   HealthResponse,
   PatientListResponse,
@@ -45,6 +51,13 @@ import type {
   TriggerClinicScenarioParams,
   TriggerClinicScenarioResponse,
   EnvironmentLogItem,
+  ConsultArchitectParams,
+  ConsultArchitectResponse,
+  AdmitPatientsParams,
+  AdmitPatientsResponse,
+  ConsultStudioParams,
+  ConsultStudioResponse,
+  ListEnvironmentPatientsParams,
   ListTargetsParams,
   TargetSummary,
   TargetDetail,
@@ -66,6 +79,9 @@ import type {
 } from './types.js'
 
 export function interpolateSqlParams(sql: string, params?: unknown[]): string {
+  if (typeof sql !== 'string' || !sql.trim()) {
+    throw new Error('sql is required')
+  }
   if (!params || params.length === 0) {
     return sql
   }
@@ -84,10 +100,16 @@ export function interpolateSqlParams(sql: string, params?: unknown[]): string {
       }
       return String(val)
     }
+    if (typeof val === 'bigint') {
+      return String(val)
+    }
     if (typeof val === 'boolean') {
       return val ? 'TRUE' : 'FALSE'
     }
     if (val instanceof Date) {
+      if (Number.isNaN(val.getTime())) {
+        throw new Error(`Invalid Date SQL parameter at ${match}`)
+      }
       return `'${val.toISOString().replace(/'/g, "''")}'`
     }
     if (typeof val === 'string') {
@@ -96,7 +118,17 @@ export function interpolateSqlParams(sql: string, params?: unknown[]): string {
       }
       return `'${val.replace(/'/g, "''")}'`
     }
-    return `'${JSON.stringify(val).replace(/'/g, "''")}'`
+    if (typeof val === 'symbol' || typeof val === 'function') {
+      throw new Error(`Unsupported SQL parameter type at ${match}`)
+    }
+    const serialized = JSON.stringify(val)
+    if (serialized === undefined) {
+      throw new Error(`Unsupported SQL parameter value at ${match}`)
+    }
+    if (serialized.includes('\x00') || serialized.includes('\\u0000')) {
+      throw new Error(`Null byte not allowed in SQL parameter at ${match}`)
+    }
+    return `'${serialized.replace(/'/g, "''")}'`
   })
 }
 
@@ -107,9 +139,10 @@ export class HebrahClient {
     defaultConnectionId?: string
     environmentId?: string
     includeErrorDetail?: boolean
+    timeoutMs?: number
   }
 
-  readonly environments = {
+  readonly environments = Object.freeze({
     list: () => this.listEnvironments(),
     get: (environmentId?: string) => this.getEnvironment(this.resolveEnvironmentId(environmentId)),
     create: (params: CreateEnvironmentParams) => this.createEnvironment(params),
@@ -138,8 +171,24 @@ export class HebrahClient {
     },
     wireguardConfig: (environmentId?: string) =>
       this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId)),
-    listPatients: (environmentId?: string) =>
-      this.listEnvironmentPatients(this.resolveEnvironmentId(environmentId)),
+    listPatients: (
+      envOrParams?: string | ListEnvironmentPatientsParams,
+      params?: ListEnvironmentPatientsParams
+    ) => {
+      if (typeof envOrParams === 'string' || envOrParams === undefined) {
+        return this.listEnvironmentPatients(this.resolveEnvironmentId(envOrParams), params)
+      }
+      return this.listEnvironmentPatients(this.resolveEnvironmentId(), envOrParams)
+    },
+    admitPatients: (
+      envOrParams?: string | AdmitPatientsParams,
+      params?: AdmitPatientsParams
+    ) => {
+      if (typeof envOrParams === 'string') {
+        return this.admitEnvironmentPatients(envOrParams, params)
+      }
+      return this.admitEnvironmentPatients(this.resolveEnvironmentId(), envOrParams)
+    },
     getPatientChart: (envOrPatientId: string, patientId?: string) => {
       if (patientId !== undefined) {
         return this.getEnvironmentPatientChart(envOrPatientId, patientId)
@@ -169,10 +218,25 @@ export class HebrahClient {
     recordOutcome: (params: RecordOutcomeParams, environmentId?: string) =>
       this.recordEnvironmentOutcome(params, environmentId),
     logs: (environmentId?: string) =>
-      this.getEnvironmentLogs(this.resolveEnvironmentId(environmentId))
-  }
+      this.getEnvironmentLogs(this.resolveEnvironmentId(environmentId)),
+    consultArchitect: (params: ConsultArchitectParams | string) =>
+      this.consultEnvironmentArchitect(typeof params === 'string' ? { prompt: params } : params),
+    consultStudio: (
+      envOrParams: string | ConsultStudioParams,
+      params?: ConsultStudioParams
+    ) => {
+      if (typeof envOrParams === 'string') {
+        if (!params) {
+          throw new Error('consultStudio requires studio parameters')
+        }
+        return this.consultEnvironmentStudio(envOrParams, params)
+      }
+      return this.consultEnvironmentStudio(this.resolveEnvironmentId(), envOrParams)
+    },
+    openDataCatalog: (environmentId?: string) => this.getOpenDataCatalog(environmentId)
+  })
 
-  readonly db = {
+  readonly db = Object.freeze({
     query: (
       sqlOrParams: string | DbQueryParams,
       paramsOrEnvId?: unknown[] | string,
@@ -192,9 +256,9 @@ export class HebrahClient {
       this.listEnvironmentDbTables(this.resolveEnvironmentId(environmentId)),
     exportVpnConfig: (environmentId?: string) =>
       this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId))
-  }
+  })
 
-  readonly connections = {
+  readonly connections = Object.freeze({
     targets: (params?: ListTargetsParams) => this.listConnectionTargets(params),
     target: (targetId: string) => this.getConnectionTarget(targetId),
     packs: (params?: { all?: boolean }) => this.listConnectionPacks(params),
@@ -211,15 +275,15 @@ export class HebrahClient {
     audit: (connectionId: string, params?: ListConnectionAuditParams) =>
       this.listConnectionAudit(connectionId, params),
     verifyAudit: (connectionId?: string) => this.verifyConnectionAudit(connectionId)
-  }
+  })
 
-  readonly agent = {
+  readonly agent = Object.freeze({
     usage: () => this.getAgentUsage(),
     wallet: () => this.getAgentWallet(),
     topup: (params: AgentTopupParams) => this.createAgentTopup(params)
-  }
+  })
 
-  readonly sandbox = {
+  readonly sandbox = Object.freeze({
     catalog: (connectionId?: string) => this.getSandboxCatalog(connectionId),
     domains: () => this.listSandboxDomains(),
     domain: (domainId: string) => this.getSandboxDomain(domainId),
@@ -244,15 +308,15 @@ export class HebrahClient {
       this.getSyntheticEhrProfile(connectionId),
     listEhrModels: () => this.listEhrModels(),
     resetSyntheticEhr: (connectionId?: string) => this.resetSyntheticEhr(connectionId)
-  }
+  })
 
-  readonly smart = {
+  readonly smart = Object.freeze({
     launch: (params: SmartLaunchParams) => this.smartLaunch(params),
     registerClient: (params: RegisterSmartClientParams) => this.registerSmartClient(params),
     exchangeToken: (params: SmartTokenParams) => this.exchangeSmartToken(params)
-  }
+  })
 
-  readonly fhir = {
+  readonly fhir = Object.freeze({
     readPatient: (patientId: string, accessToken?: string) =>
       this.readFhirPatient(patientId, accessToken),
     search: (
@@ -261,36 +325,44 @@ export class HebrahClient {
       environmentId?: string
     ) => this.searchFhirResources(resourceType, params, environmentId),
     metadata: () => this.getFhirMetadata()
-  }
+  })
 
-  readonly patients = {
+  readonly patients = Object.freeze({
     /** @deprecated Use `sandbox.listSyntheticResources('Patient', connectionId)` for connection-scoped sandbox IDs. */
     list: (connectionId?: string) => this.listPatients(connectionId),
     /** @deprecated Use `sandbox.resource('Patient', patientId)` or connection-scoped catalog IDs. */
     get: (patientId: string, connectionId?: string) => this.getPatient(patientId, connectionId)
-  }
+  })
 
-  readonly webhooks = {
+  readonly webhooks = Object.freeze({
     triggerMockEvent: (params: TriggerMockEventParams) =>
       this.triggerMockEvent(params),
     listDeliveries: (params?: ListWebhookDeliveriesParams) =>
       this.listWebhookDeliveries(params ?? {}),
     replayDelivery: (deliveryId: string) => this.replayWebhookDelivery(deliveryId)
-  }
+  })
 
   constructor(options: HebrahClientOptions) {
-    if (!options.apiKey?.trim()) {
-      throw new Error('apiKey is required')
+    const validApiKey = validateToken(options.apiKey, 'apiKey')
+    const validTimeout = validateTimeoutMs(options.timeoutMs)
+    const defaultConnId = options.defaultConnectionId?.trim() || undefined
+    if (defaultConnId) {
+      safePathSegment(defaultConnId, 'defaultConnectionId')
+    }
+    const defaultEnvId = options.environmentId?.trim() || undefined
+    if (defaultEnvId) {
+      safePathSegment(defaultEnvId, 'environmentId')
     }
     const cfg = {
-      apiKey: options.apiKey.trim(),
+      apiKey: validApiKey,
       baseUrl: resolveBaseUrl(options.baseUrl),
-      defaultConnectionId: options.defaultConnectionId?.trim() || undefined,
-      environmentId: options.environmentId?.trim() || undefined,
-      includeErrorDetail: options.includeErrorDetail
+      defaultConnectionId: defaultConnId,
+      environmentId: defaultEnvId,
+      includeErrorDetail: options.includeErrorDetail,
+      timeoutMs: validTimeout
     }
     Object.defineProperty(cfg, 'apiKey', {
-      value: options.apiKey.trim(),
+      value: validApiKey,
       enumerable: false,
       writable: false,
       configurable: false
@@ -317,7 +389,11 @@ export class HebrahClient {
   }
 
   private resolveConnectionId(connectionId?: string): string | undefined {
-    return connectionId ?? this.config.defaultConnectionId
+    const resolved = connectionId?.trim() || this.config.defaultConnectionId
+    if (resolved) {
+      safePathSegment(resolved, 'connectionId')
+    }
+    return resolved
   }
 
   private requireConnectionId(connectionId?: string): string {
@@ -361,25 +437,12 @@ export class HebrahClient {
   }
 
   async health(): Promise<HealthResponse> {
-    const base = this.config.baseUrl.replace(/\/$/, '')
-    let response: Response
-    try {
-      response = await fetchWithTimeout(`${base}/health`)
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-        throw new HebrahApiError('Health check timed out', 504)
-      }
-      throw new HebrahApiError('Health check failed: control plane unreachable', 503)
-    }
-    if (!response.ok) {
-      const detail = errorDetail(this.config, await response.text())
-      throw new HebrahApiError(
-        `Health check failed (${response.status})`,
-        response.status,
-        detail
-      )
-    }
-    return response.json() as Promise<HealthResponse>
+    return hebrahRequest<HealthResponse>(this.config, '/health', undefined, {
+      skipAuth: true,
+      errorPrefix: 'Health check failed',
+      timeoutMessage: 'Health check timed out',
+      unreachableMessage: 'Health check failed: control plane unreachable'
+    })
   }
 
   private getSandboxCatalog(connectionId?: string): Promise<SandboxCatalog> {
@@ -560,6 +623,9 @@ export class HebrahClient {
   }
 
   private smartLaunch(params: SmartLaunchParams): Promise<SmartLaunchResponse> {
+    if (params.smartAppUrl) {
+      assertSafeBaseUrl(params.smartAppUrl)
+    }
     return hebrahRequest<SmartLaunchResponse>(this.config, '/v1/smart/launch', {
       method: 'POST',
       body: JSON.stringify({
@@ -573,6 +639,12 @@ export class HebrahClient {
   private registerSmartClient(
     params: RegisterSmartClientParams
   ): Promise<RegisterSmartClientResponse> {
+    if (!Array.isArray(params.redirectUris) || params.redirectUris.length === 0) {
+      throw new Error('redirectUris must be a non-empty array')
+    }
+    for (const uri of params.redirectUris) {
+      assertSafeBaseUrl(uri)
+    }
     return hebrahRequest<RegisterSmartClientResponse>(this.config, '/v1/smart/clients', {
       method: 'POST',
       body: JSON.stringify({
@@ -583,8 +655,8 @@ export class HebrahClient {
     })
   }
 
-  private async exchangeSmartToken(params: SmartTokenParams): Promise<SmartTokenResponse> {
-    const base = this.config.baseUrl.replace(/\/$/, '')
+  private exchangeSmartToken(params: SmartTokenParams): Promise<SmartTokenResponse> {
+    assertSafeBaseUrl(params.redirectUri)
     const body = new URLSearchParams({
       grant_type: params.grantType ?? 'authorization_code',
       code: params.code,
@@ -592,54 +664,43 @@ export class HebrahClient {
       client_id: params.clientId,
       code_verifier: params.codeVerifier
     })
-    let response: Response
-    try {
-      response = await fetchWithTimeout(`${base}/oauth/token`, {
+    return hebrahRequest<SmartTokenResponse>(
+      this.config,
+      '/oauth/token',
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body
-      })
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-        throw new HebrahApiError('SMART token exchange timed out', 504)
+      },
+      {
+        skipAuth: true,
+        errorPrefix: 'SMART token exchange failed',
+        timeoutMessage: 'SMART token exchange timed out',
+        unreachableMessage: 'SMART token exchange failed: control plane unreachable'
       }
-      throw new HebrahApiError('SMART token exchange failed: control plane unreachable', 503)
-    }
-    if (!response.ok) {
-      const detail = errorDetail(this.config, await response.text())
-      throw new HebrahApiError(`SMART token exchange failed (${response.status})`, response.status, detail)
-    }
-    return response.json() as Promise<SmartTokenResponse>
+    )
   }
 
-  private async readFhirPatient(
+  private readFhirPatient(
     patientId: string,
     accessToken?: string
   ): Promise<Record<string, unknown>> {
-    const base = this.config.baseUrl.replace(/\/$/, '')
-    const token = accessToken?.trim() || this.config.apiKey
-    let response: Response
-    try {
-      response = await fetchWithTimeout(
-        `${base}/fhir/R4/Patient/${safePathSegment(patientId, 'patientId')}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/fhir+json'
-          }
-        }
-      )
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-        throw new HebrahApiError('FHIR Patient read timed out', 504)
+    const bearerToken = accessToken?.trim()
+      ? validateToken(accessToken, 'accessToken')
+      : undefined
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/fhir/R4/Patient/${safePathSegment(patientId, 'patientId')}`,
+      {
+        headers: { Accept: 'application/fhir+json' }
+      },
+      {
+        bearerToken,
+        errorPrefix: 'FHIR Patient read failed',
+        timeoutMessage: 'FHIR Patient read timed out',
+        unreachableMessage: 'FHIR Patient read failed: control plane unreachable'
       }
-      throw new HebrahApiError('FHIR Patient read failed: control plane unreachable', 503)
-    }
-    if (!response.ok) {
-      const detail = errorDetail(this.config, await response.text())
-      throw new HebrahApiError(`FHIR Patient read failed (${response.status})`, response.status, detail)
-    }
-    return response.json() as Promise<Record<string, unknown>>
+    )
   }
 
   private async searchFhirResources(
@@ -724,10 +785,11 @@ export class HebrahClient {
   }
 
   private resolveEnvironmentId(environmentId?: string): string {
-    const resolved = environmentId ?? this.config.environmentId
+    const resolved = environmentId?.trim() || this.config.environmentId
     if (!resolved) {
       throw new Error('environmentId is required (pass as argument or set in client options)')
     }
+    safePathSegment(resolved, 'environmentId')
     return resolved
   }
 
@@ -809,11 +871,39 @@ export class HebrahClient {
   }
 
   private listEnvironmentPatients(
-    environmentId: string
+    environmentId: string,
+    params?: ListEnvironmentPatientsParams
   ): Promise<Record<string, unknown>[]> {
+    const search = new URLSearchParams()
+    if (params?.department) search.set('department', params.department)
+    if (params?.acuity) search.set('acuity', params.acuity)
+    if (params?.status) search.set('status', params.status)
+    if (params?.search) search.set('search', params.search)
+    if (params?.limit !== undefined) search.set('limit', String(params.limit))
+    const q = search.toString() ? `?${search.toString()}` : ''
     return hebrahRequest<Record<string, unknown>[]>(
       this.config,
-      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients${q}`
+    )
+  }
+
+  private admitEnvironmentPatients(
+    environmentId: string,
+    params: AdmitPatientsParams = {}
+  ): Promise<AdmitPatientsResponse> {
+    const cohort = params.patient_cohort ?? params.cohort
+    return hebrahRequest<AdmitPatientsResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients/generate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          count: params.count ?? 5,
+          ...(cohort ? { cohort, patient_cohort: cohort } : {}),
+          ...(params.acuity ? { acuity: params.acuity } : {}),
+          ...(params.notes ? { notes: params.notes } : {})
+        })
+      }
     )
   }
 
@@ -930,6 +1020,63 @@ export class HebrahClient {
     return hebrahRequest<EnvironmentLogItem[]>(
       this.config,
       `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/logs`
+    )
+  }
+
+  private consultEnvironmentArchitect(
+    params: ConsultArchitectParams
+  ): Promise<ConsultArchitectResponse> {
+    if (!params.prompt || typeof params.prompt !== 'string' || !params.prompt.trim()) {
+      throw new Error('prompt is required')
+    }
+    const sessionId = params.session_id ?? params.sessionId
+    return hebrahRequest<ConsultArchitectResponse>(
+      this.config,
+      '/v1/environments/architect',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: params.prompt.trim(),
+          ...(sessionId ? { session_id: sessionId } : {})
+        })
+      }
+    )
+  }
+
+  private consultEnvironmentStudio(
+    environmentId: string,
+    params: ConsultStudioParams
+  ): Promise<ConsultStudioResponse> {
+    if (!params.prompt || typeof params.prompt !== 'string' || !params.prompt.trim()) {
+      throw new Error('prompt is required')
+    }
+    const sessionId = params.session_id ?? params.sessionId
+    const applyChanges = params.apply_changes ?? params.applyChanges
+    return hebrahRequest<ConsultStudioResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/studio/chat`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: params.prompt.trim(),
+          ...(sessionId ? { session_id: sessionId } : {}),
+          ...(applyChanges !== undefined ? { apply_changes: Boolean(applyChanges) } : {})
+        })
+      }
+    )
+  }
+
+  private getOpenDataCatalog(environmentId?: string): Promise<Record<string, unknown>> {
+    const envId = environmentId?.trim() || this.config.environmentId
+    if (envId) {
+      return hebrahRequest<Record<string, unknown>>(
+        this.config,
+        `/v1/environments/${safePathSegment(envId, 'environmentId')}/open-data/catalog`
+      )
+    }
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      '/v1/sandbox/research-packs/clinical_knowledge_v1'
     )
   }
 
@@ -1071,8 +1218,17 @@ export class HebrahClient {
     if (amountCents === undefined) {
       throw new Error('amountCents is required')
     }
+    if (typeof amountCents !== 'number' || !Number.isInteger(amountCents) || amountCents <= 0) {
+      throw new Error('amountCents must be a positive integer')
+    }
     const successUrl = params.success_url ?? params.successUrl
+    if (successUrl) {
+      assertSafeBaseUrl(successUrl)
+    }
     const cancelUrl = params.cancel_url ?? params.cancelUrl
+    if (cancelUrl) {
+      assertSafeBaseUrl(cancelUrl)
+    }
     return hebrahRequest<AgentTopupResponse>(this.config, '/v1/agent/topup', {
       method: 'POST',
       body: JSON.stringify({

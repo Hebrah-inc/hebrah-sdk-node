@@ -11,6 +11,8 @@ export interface HebrahClientOptions {
   environmentId?: string
   /** When false, HebrahApiError.detail is omitted. Default true. */
   includeErrorDetail?: boolean
+  /** Default request timeout in milliseconds (100..300000). Default 30000. */
+  timeoutMs?: number
 }
 
 export interface HealthResponse {
@@ -429,6 +431,64 @@ export interface EnvironmentLogItem {
   duration_ms?: number | null
   status: string
   created_at: string
+}
+
+export interface ConsultArchitectParams {
+  prompt: string
+  sessionId?: string
+  session_id?: string
+}
+
+export interface ConsultArchitectResponse {
+  session_id: string
+  reply: string
+  scope_classification: 'in_scope' | 'adjacent_redirect' | 'out_of_scope_refusal' | string
+  blueprint?: Record<string, unknown> | null
+  clarifying_questions?: string[]
+  recommendations?: Record<string, unknown>[]
+  ready_to_provision?: boolean
+  [key: string]: unknown
+}
+
+export interface AdmitPatientsParams {
+  count?: number
+  cohort?: string
+  patient_cohort?: string
+  acuity?: string
+  notes?: string
+}
+
+export interface AdmitPatientsResponse {
+  success?: boolean
+  environment_id: string
+  admitted_count: number
+  total_patient_count?: number
+  patients?: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
+export interface ConsultStudioParams {
+  prompt: string
+  sessionId?: string
+  session_id?: string
+  applyChanges?: boolean
+  apply_changes?: boolean
+}
+
+export interface ConsultStudioResponse {
+  session_id: string
+  reply: string
+  proposed_actions?: Record<string, unknown>[]
+  applied_actions?: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
+export interface ListEnvironmentPatientsParams {
+  department?: string
+  acuity?: string
+  status?: string
+  search?: string
+  limit?: number
 }
 
 export interface ListTargetsParams {
