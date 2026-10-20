@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-10-19
+
+### Added
+
+- **Conversational Architect, Studio & Patient Admission (`client.environments`)**:
+  - `consultArchitect()`, `admitPatients()`, and `consultStudio()`.
+- **Modular HTTP & Security Utilities**:
+  - Exported `redactSecrets`, `safePathSegment`, `assertSafeBaseUrl`, `assertSafeExternalUrl`, `validateToken`, `validateTimeoutMs`, and `interpolateSqlParams`.
+
+### Security
+
+- Enforced zero-leak secret redaction (`redactSecrets`) across `HebrahApiError` (`toJSON`, `nodejs.util.inspect.custom`), `HebrahClient` (`Symbol.toStringTag`, non-enumerable private token storage), and `HebrahAgentHarness` (`hb_live_*`, `hb_test_*`, `hb_pat_*`, `hb_conn_*`, `hb_claim_*`, `enc:v1:*`, WireGuard `PrivateKey`, Bearer/Basic headers).
+- Hardened SSRF defenses (`assertSafeBaseUrl`, `assertSafeExternalUrl`) to block IPv4/IPv6 loopback/private/link-local/metadata addresses, URL credentials, and query/fragment injection.
+- Added timestamp replay protection (`toleranceSeconds`, default 300s) to `verifyWebhookSignature()`.
+- Hardened `interpolateSqlParams()` to skip `$n` placeholders inside SQL comments, single-quoted strings, double-quoted identifiers, and dollar-quoted blocks.
+
 ## [0.9.0] — 2026-10-14
 
 ### Added
