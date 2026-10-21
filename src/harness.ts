@@ -72,7 +72,20 @@ async function mcpCall(
     error?: { message?: string }
   }
   try {
-    payload = await res.json()
+    const contentType = (res.headers?.get?.('content-type') ?? '').toLowerCase()
+    if (contentType.includes('text/event-stream')) {
+      const rawText = await res.text()
+      const dataLine = rawText
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l.startsWith('data:'))
+      if (!dataLine) {
+        throw new Error(`MCP ${tool} returned invalid SSE payload`)
+      }
+      payload = JSON.parse(dataLine.slice(5).trim())
+    } else {
+      payload = await res.json()
+    }
   } catch {
     throw new Error(`MCP ${tool} returned invalid JSON`)
   }
