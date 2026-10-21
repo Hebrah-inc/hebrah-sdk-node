@@ -805,9 +805,16 @@ export class HebrahClient {
   }
 
   private createEnvironment(params: CreateEnvironmentParams): Promise<EnvironmentSummary> {
+    const payload: Record<string, unknown> = { ...params }
+    if (!payload.clinic_type && params.archetype) {
+      payload.clinic_type = params.archetype
+    }
+    if (payload.patient_count === undefined && params.seed_patients !== undefined) {
+      payload.patient_count = params.seed_patients
+    }
     return hebrahRequest<EnvironmentSummary>(this.config, '/v1/environments', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(payload)
     })
   }
 
@@ -1026,7 +1033,8 @@ export class HebrahClient {
   private consultEnvironmentArchitect(
     params: ConsultArchitectParams
   ): Promise<ConsultArchitectResponse> {
-    if (!params.prompt || typeof params.prompt !== 'string' || !params.prompt.trim()) {
+    const text = (params.prompt ?? params.message ?? '').trim()
+    if (!text) {
       throw new Error('prompt is required')
     }
     const sessionId = params.session_id ?? params.sessionId
@@ -1036,7 +1044,8 @@ export class HebrahClient {
       {
         method: 'POST',
         body: JSON.stringify({
-          prompt: params.prompt.trim(),
+          prompt: text,
+          message: text,
           ...(sessionId ? { session_id: sessionId } : {})
         })
       }
@@ -1047,7 +1056,8 @@ export class HebrahClient {
     environmentId: string,
     params: ConsultStudioParams
   ): Promise<ConsultStudioResponse> {
-    if (!params.prompt || typeof params.prompt !== 'string' || !params.prompt.trim()) {
+    const text = (params.prompt ?? params.message ?? '').trim()
+    if (!text) {
       throw new Error('prompt is required')
     }
     const sessionId = params.session_id ?? params.sessionId
@@ -1058,7 +1068,8 @@ export class HebrahClient {
       {
         method: 'POST',
         body: JSON.stringify({
-          prompt: params.prompt.trim(),
+          prompt: text,
+          message: text,
           ...(sessionId ? { session_id: sessionId } : {}),
           ...(applyChanges !== undefined ? { apply_changes: Boolean(applyChanges) } : {})
         })

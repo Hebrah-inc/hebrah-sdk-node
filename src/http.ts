@@ -283,8 +283,9 @@ export async function hebrahRequest<T>(
 
   if (!response.ok) {
     const detail = errorDetail(config, await response.text())
+    const suffix = detail ? `: ${detail.slice(0, 300)}` : ''
     throw new HebrahApiError(
-      `${errorPrefix} failed (${response.status})`,
+      `${errorPrefix} failed (${response.status})${suffix}`,
       response.status,
       detail
     )

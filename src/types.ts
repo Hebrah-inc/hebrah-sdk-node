@@ -282,8 +282,10 @@ export interface ResetSyntheticEhrResponse {
 export interface CreateEnvironmentParams {
   name: string
   clinic_type?: string
+  archetype?: string
   patient_cohort?: string
   patient_count?: number
+  seed_patients?: number
   bed_count?: number
   addons?: string[]
 }
@@ -293,6 +295,7 @@ export interface EnvironmentSummary {
   org_id: string
   name: string
   clinic_type: string
+  archetype?: string
   patient_cohort: string
   status: string
   addons: string[]
@@ -434,7 +437,8 @@ export interface EnvironmentLogItem {
 }
 
 export interface ConsultArchitectParams {
-  prompt: string
+  prompt?: string
+  message?: string
   sessionId?: string
   session_id?: string
 }
@@ -468,7 +472,8 @@ export interface AdmitPatientsResponse {
 }
 
 export interface ConsultStudioParams {
-  prompt: string
+  prompt?: string
+  message?: string
   sessionId?: string
   session_id?: string
   applyChanges?: boolean
