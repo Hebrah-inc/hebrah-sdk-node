@@ -250,6 +250,9 @@ export async function hebrahRequest<T>(
   const errorPrefix = options?.errorPrefix ?? 'Control plane request'
 
   const mergedHeaders = normalizeHeaders(init?.headers)
+  if (!mergedHeaders['Accept-Encoding'] && !mergedHeaders['accept-encoding']) {
+    mergedHeaders['Accept-Encoding'] = 'gzip, deflate'
+  }
   if (init?.body && typeof init.body === 'string' && !mergedHeaders['Content-Type']) {
     mergedHeaders['Content-Type'] = 'application/json'
   }
