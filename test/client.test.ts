@@ -734,16 +734,103 @@ describe('verifyWebhookSignature', () => {
     ).rejects.toThrow(/private, loopback, or metadata/)
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('upstream leak: hb_live_leaked1234567890 and enc:v1:secretcipher', {
-        status: 500
-      })
+      new Response(
+        'upstream leak: hb_live_leaked1234567890, hb_onb_onboardtoken9999, enc:v1:secretcipher, and enc:v2:secretcipherv2',
+        {
+          status: 500
+        }
+      )
     )
     await expect(client.environments.list()).rejects.toSatisfy((err: HebrahApiError) => {
       expect(err.message).not.toContain('hb_live_leaked1234567890')
+      expect(err.message).not.toContain('hb_onb_onboardtoken9999')
       expect(err.message).not.toContain('enc:v1:secretcipher')
+      expect(err.message).not.toContain('enc:v2:secretcipherv2')
       expect(err.detail).toContain('[REDACTED_HEBRAH_TOKEN]')
       return true
     })
+  })
+
+  it('supports client.concierge (catalog, chat, claim, sessions, inviteHuman)', async () => {
+    const client = new HebrahClient({
+      apiKey: 'hb_pat_conciergetest12345678',
+      baseUrl: BASE
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          platform: 'Hebrah',
+          archetypes: [{ id: 'cardiology_center' }],
+          clinical_packs: [{ id: 'fhir_r4_clinical_core' }]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    const catalog = await client.concierge.catalog()
+    expect(catalog.platform).toBe('Hebrah')
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          session_id: 'cag-1',
+          stage: 'stage1_concierge',
+          reply: 'Welcome to Hebrah!',
+          scope_classification: 'in_scope'
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    const chatRes = await client.concierge.chat({
+      message: 'What can Hebrah do for cardiology AI?',
+      onboarding_token: 'hb_onb_1234567890123456'
+    })
+    expect(chatRes.session_id).toBe('cag-1')
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          session_id: 'cag-1',
+          stage: 'stage2_studio',
+          reply: 'Studio ready!',
+          credentials_minted: { pat: 'hb_pat_new' }
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    const claimRes = await client.concierge.claim({
+      session_id: 'cag-1',
+      onboarding_token: 'hb_onb_1234567890123456',
+      confirm_provision: true
+    })
+    expect(claimRes.stage).toBe('stage2_studio')
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          sessions: [{ session_id: 'cag-1', stage: 'stage2_studio' }]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    const sessionsRes = await client.concierge.sessions()
+    expect(sessionsRes.sessions).toHaveLength(1)
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 'invited',
+          human_email: 'founder@acmedigitalhealth.io',
+          claim_url: 'https://app.hebrah.com/claim-org/tok_123'
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    const inviteRes = await client.concierge.inviteHuman({
+      human_email: 'founder@acmedigitalhealth.io'
+    })
+    expect(inviteRes.status).toBe('invited')
   })
 })
 

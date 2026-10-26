@@ -680,4 +680,86 @@ export interface AgentTopupResponse {
   mode: string
 }
 
+export interface ConciergeChatParams {
+  message: string
+  session_id?: string
+  sessionId?: string
+  session_token?: string
+  sessionToken?: string
+  onboarding_token?: string
+  onboardingToken?: string
+  environment_id?: string
+  environmentId?: string
+  channel?: string
+  org_name?: string
+  orgName?: string
+  invite_email?: string
+  inviteEmail?: string
+  owner_email?: string
+  ownerEmail?: string
+  human_email?: string
+  humanEmail?: string
+  auto_provision?: boolean
+  autoProvision?: boolean
+}
+
+export interface ConciergeChatResponse {
+  stage: 'concierge_onboarding' | 'account_studio' | string
+  session_id: string
+  session_token?: string | null
+  reply: string
+  assistant_message?: string
+  scope_classification?: string
+  model?: string
+  suggested_prompts?: string[]
+  recommended_blueprint?: Record<string, unknown> | null
+  provisioned_account?: Record<string, unknown> | null
+  provisioned_environment?: Record<string, unknown> | null
+  active_environment_id?: string | null
+  human_invite?: Record<string, unknown> | null
+  sdk_integration_bundle?: Record<string, unknown> | null
+  executed_tools?: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
+export interface ConciergeClaimParams {
+  session_id?: string
+  sessionId?: string
+  session_token?: string
+  sessionToken?: string
+  onboarding_token?: string
+  onboardingToken?: string
+  auto_provision?: boolean
+  autoProvision?: boolean
+  confirm_provision?: boolean
+  confirmProvision?: boolean
+  provision_now?: boolean
+  provisionNow?: boolean
+  environment_name?: string
+  environmentName?: string
+}
+
+export interface InviteHumanParams {
+  invite_email?: string
+  inviteEmail?: string
+  owner_email?: string
+  ownerEmail?: string
+  human_email?: string
+  humanEmail?: string
+  org_name?: string
+  orgName?: string
+}
+
+export interface InviteHumanResponse {
+  orgId: string
+  orgName: string
+  inviteEmail: string
+  claimUrl: string
+  claimTokenPrefix?: string
+  expiresAt?: string
+  emailSent?: boolean
+  markdown?: string
+}
+
+
 

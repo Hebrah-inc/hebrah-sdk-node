@@ -61,6 +61,11 @@ export type {
   AgentUsageResponse,
   AgentWalletResponse,
   AgentTopupParams,
-  AgentTopupResponse
+  AgentTopupResponse,
+  ConciergeChatParams,
+  ConciergeChatResponse,
+  ConciergeClaimParams,
+  InviteHumanParams,
+  InviteHumanResponse
 } from './types.js'
 export type { HebrahAgentHarnessOptions, LlmProvider } from './harness.js'

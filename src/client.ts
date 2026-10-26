@@ -75,7 +75,12 @@ import type {
   AgentUsageResponse,
   AgentWalletResponse,
   AgentTopupParams,
-  AgentTopupResponse
+  AgentTopupResponse,
+  ConciergeChatParams,
+  ConciergeChatResponse,
+  ConciergeClaimParams,
+  InviteHumanParams,
+  InviteHumanResponse
 } from './types.js'
 
 export function interpolateSqlParams(sql: string, params?: unknown[]): string {
@@ -280,7 +285,19 @@ export class HebrahClient {
   readonly agent = Object.freeze({
     usage: () => this.getAgentUsage(),
     wallet: () => this.getAgentWallet(),
-    topup: (params: AgentTopupParams) => this.createAgentTopup(params)
+    topup: (params: AgentTopupParams) => this.createAgentTopup(params),
+    inviteHuman: (params: InviteHumanParams | string) =>
+      this.inviteHumanOperator(typeof params === 'string' ? { invite_email: params } : params)
+  })
+
+  readonly concierge = Object.freeze({
+    chat: (params: ConciergeChatParams | string) =>
+      this.chatWithConcierge(typeof params === 'string' ? { message: params } : params),
+    claim: (params: ConciergeClaimParams) => this.claimConciergeSession(params),
+    sessions: () => this.listConciergeSessions(),
+    catalog: () => this.getConciergeCatalog(),
+    inviteHuman: (params: InviteHumanParams | string) =>
+      this.inviteHumanOperator(typeof params === 'string' ? { invite_email: params } : params)
   })
 
   readonly sandbox = Object.freeze({
@@ -1246,6 +1263,104 @@ export class HebrahClient {
         amount_cents: amountCents,
         ...(successUrl ? { success_url: successUrl } : {}),
         ...(cancelUrl ? { cancel_url: cancelUrl } : {})
+      })
+    })
+  }
+
+  private chatWithConcierge(params: ConciergeChatParams): Promise<ConciergeChatResponse> {
+    const message = (params.message ?? '').trim()
+    if (!message) {
+      throw new Error('message is required')
+    }
+    const sessionId = params.session_id ?? params.sessionId
+    const sessionToken =
+      params.session_token ??
+      params.sessionToken ??
+      params.onboarding_token ??
+      params.onboardingToken
+    const envId = params.environment_id ?? params.environmentId ?? this.config.environmentId
+    const orgName = params.org_name ?? params.orgName
+    const inviteEmail =
+      params.invite_email ??
+      params.inviteEmail ??
+      params.owner_email ??
+      params.ownerEmail ??
+      params.human_email ??
+      params.humanEmail
+    const autoProvision = params.auto_provision ?? params.autoProvision
+    return hebrahRequest<ConciergeChatResponse>(this.config, '/v1/concierge/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        channel: params.channel ?? 'sdk_node',
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(sessionToken ? { session_token: sessionToken } : {}),
+        ...(envId ? { environment_id: envId } : {}),
+        ...(orgName ? { org_name: orgName } : {}),
+        ...(inviteEmail ? { invite_email: inviteEmail } : {}),
+        ...(autoProvision !== undefined ? { auto_provision: Boolean(autoProvision) } : {})
+      })
+    })
+  }
+
+  private claimConciergeSession(params: ConciergeClaimParams): Promise<Record<string, unknown>> {
+    const sessionToken = (
+      params.session_token ??
+      params.sessionToken ??
+      params.onboarding_token ??
+      params.onboardingToken ??
+      ''
+    ).trim()
+    if (!sessionToken) {
+      throw new Error('session_token is required')
+    }
+    const sessionId = params.session_id ?? params.sessionId
+    const autoProvision =
+      params.auto_provision ??
+      params.autoProvision ??
+      params.confirm_provision ??
+      params.confirmProvision ??
+      params.provision_now ??
+      params.provisionNow
+    const environmentName = params.environment_name ?? params.environmentName
+    return hebrahRequest<Record<string, unknown>>(this.config, '/v1/concierge/claim', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(autoProvision !== undefined ? { auto_provision: Boolean(autoProvision) } : {}),
+        ...(environmentName ? { environment_name: environmentName } : {})
+      })
+    })
+  }
+
+  private listConciergeSessions(): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(this.config, '/v1/concierge/sessions')
+  }
+
+  private getConciergeCatalog(): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(this.config, '/v1/concierge/catalog')
+  }
+
+  private inviteHumanOperator(params: InviteHumanParams): Promise<InviteHumanResponse> {
+    const email = (
+      params.invite_email ??
+      params.inviteEmail ??
+      params.owner_email ??
+      params.ownerEmail ??
+      params.human_email ??
+      params.humanEmail ??
+      ''
+    ).trim()
+    if (!email || !email.includes('@')) {
+      throw new Error('invite_email must be a valid email address')
+    }
+    const orgName = params.org_name ?? params.orgName
+    return hebrahRequest<InviteHumanResponse>(this.config, '/v1/agent/invite-human', {
+      method: 'POST',
+      body: JSON.stringify({
+        invite_email: email,
+        ...(orgName ? { org_name: orgName } : {})
       })
     })
   }
