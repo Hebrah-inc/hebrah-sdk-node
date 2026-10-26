@@ -1,6 +1,6 @@
 {
   "name": "@hebrah/sdk",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Official Node.js SDK for the hebrah Isolated Health Environments & control plane API",
   "type": "module",
   "main": "./dist/index.cjs",

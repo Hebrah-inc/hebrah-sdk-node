@@ -80,7 +80,26 @@ import type {
   ConciergeChatResponse,
   ConciergeClaimParams,
   InviteHumanParams,
-  InviteHumanResponse
+  InviteHumanResponse,
+  DbExecuteParams,
+  DbExecuteResponse,
+  SqliteDownloadResponse,
+  SqliteUploadParams,
+  SqliteUploadResponse,
+  VectorUpsertParams,
+  VectorUpsertResponse,
+  VectorSearchParams,
+  VectorSearchResponse,
+  VectorDeleteParams,
+  VectorCreateCollectionParams,
+  GraphCypherParams,
+  GraphCypherResponse,
+  RegisterWireguardPeerParams,
+  WireguardPeerRecord,
+  PromoteEnvironmentEhrParams,
+  PromoteEnvironmentEhrResponse,
+  SyncEnvironmentConnectorParams,
+  SyncEnvironmentConnectorResponse
 } from './types.js'
 
 export function interpolateSqlParams(sql: string, params?: unknown[]): string {
@@ -174,8 +193,66 @@ export class HebrahClient {
       }
       return this.removeEnvironmentModule(this.resolveEnvironmentId(), envOrModuleId)
     },
-    wireguardConfig: (environmentId?: string) =>
-      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId)),
+    wireguardConfig: (environmentId?: string, publicKey?: string) =>
+      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId), publicKey),
+    vpn: Object.freeze({
+      registerPeer: (params: RegisterWireguardPeerParams, environmentId?: string) =>
+        this.registerEnvironmentWireguardPeer(params, environmentId),
+      listPeers: (environmentId?: string) =>
+        this.listEnvironmentWireguardPeers(this.resolveEnvironmentId(environmentId)),
+      revokePeer: (peerId: string, environmentId?: string) =>
+        this.revokeEnvironmentWireguardPeer(this.resolveEnvironmentId(environmentId), peerId),
+      config: (environmentId?: string, publicKey?: string) =>
+        this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId), publicKey)
+    }),
+    db: Object.freeze({
+      query: (params: DbQueryParams | string, environmentId?: string) =>
+        this.queryEnvironmentDb(typeof params === 'string' ? { sql: params } : params, environmentId),
+      execute: (params: DbExecuteParams | string, environmentId?: string) =>
+        this.executeEnvironmentDb(typeof params === 'string' ? { sql: params } : params, environmentId),
+      tables: (environmentId?: string) =>
+        this.listEnvironmentDbTables(this.resolveEnvironmentId(environmentId)),
+      sqliteDownload: (environmentId?: string) =>
+        this.downloadEnvironmentSqlite(this.resolveEnvironmentId(environmentId)),
+      sqliteUpload: (params: SqliteUploadParams | string, environmentId?: string) =>
+        this.uploadEnvironmentSqlite(
+          typeof params === 'string' ? { sqlite_base64: params } : params,
+          environmentId
+        )
+    }),
+    vector: Object.freeze({
+      listCollections: (environmentId?: string) =>
+        this.listEnvironmentVectorCollections(this.resolveEnvironmentId(environmentId)),
+      createCollection: (params: VectorCreateCollectionParams, environmentId?: string) =>
+        this.createEnvironmentVectorCollection(params, environmentId),
+      upsert: (params: VectorUpsertParams, environmentId?: string) =>
+        this.upsertEnvironmentVectors(params, environmentId),
+      search: (params: VectorSearchParams | string, environmentId?: string) =>
+        this.searchEnvironmentVectors(
+          typeof params === 'string' ? { query: params } : params,
+          environmentId
+        ),
+      delete: (params: VectorDeleteParams, environmentId?: string) =>
+        this.deleteEnvironmentVectors(params, environmentId)
+    }),
+    graph: Object.freeze({
+      cypher: (params: GraphCypherParams | string, environmentId?: string) =>
+        this.queryEnvironmentGraph(
+          typeof params === 'string' ? { cypher: params } : params,
+          environmentId
+        ),
+      writeCypher: (params: GraphCypherParams | string, environmentId?: string) =>
+        this.queryEnvironmentGraph(
+          typeof params === 'string' ? { cypher: params } : params,
+          environmentId
+        ),
+      getSchema: (environmentId?: string) =>
+        this.getEnvironmentGraphSchema(this.resolveEnvironmentId(environmentId))
+    }),
+    promoteToConnectedEhr: (params: PromoteEnvironmentEhrParams, environmentId?: string) =>
+      this.promoteEnvironmentToConnectedEhr(params, environmentId),
+    syncConnector: (params: SyncEnvironmentConnectorParams, environmentId?: string) =>
+      this.syncEnvironmentConnector(params, environmentId),
     listPatients: (
       envOrParams?: string | ListEnvironmentPatientsParams,
       params?: ListEnvironmentPatientsParams
@@ -255,12 +332,60 @@ export class HebrahClient {
       const envId = typeof paramsOrEnvId === 'string' ? paramsOrEnvId : environmentId
       return this.queryEnvironmentDb(sqlOrParams, envId)
     },
+    execute: (
+      sqlOrParams: string | DbExecuteParams,
+      paramsOrEnvId?: unknown[] | string,
+      environmentId?: string
+    ): Promise<DbExecuteResponse> => {
+      if (typeof sqlOrParams === 'string') {
+        const sqlParams = Array.isArray(paramsOrEnvId) ? paramsOrEnvId : undefined
+        const envId = typeof paramsOrEnvId === 'string' ? paramsOrEnvId : environmentId
+        return this.executeEnvironmentDb({ sql: sqlOrParams, params: sqlParams }, envId)
+      }
+      const envId = typeof paramsOrEnvId === 'string' ? paramsOrEnvId : environmentId
+      return this.executeEnvironmentDb(sqlOrParams, envId)
+    },
+    sqliteDownload: (environmentId?: string): Promise<SqliteDownloadResponse> =>
+      this.downloadEnvironmentSqlite(this.resolveEnvironmentId(environmentId)),
+    sqliteUpload: (
+      params: SqliteUploadParams | string,
+      environmentId?: string
+    ): Promise<SqliteUploadResponse> =>
+      this.uploadEnvironmentSqlite(
+        typeof params === 'string' ? { sqlite_base64: params } : params,
+        environmentId
+      ),
+    vectorCollections: (environmentId?: string) =>
+      this.listEnvironmentVectorCollections(this.resolveEnvironmentId(environmentId)),
+    vectorCreateCollection: (params: VectorCreateCollectionParams, environmentId?: string) =>
+      this.createEnvironmentVectorCollection(params, environmentId),
+    vectorUpsert: (params: VectorUpsertParams, environmentId?: string) =>
+      this.upsertEnvironmentVectors(params, environmentId),
+    vectorSearch: (params: VectorSearchParams | string, environmentId?: string) =>
+      this.searchEnvironmentVectors(
+        typeof params === 'string' ? { query: params } : params,
+        environmentId
+      ),
+    vectorDelete: (params: VectorDeleteParams, environmentId?: string) =>
+      this.deleteEnvironmentVectors(params, environmentId),
+    graphQuery: (params: GraphCypherParams | string, environmentId?: string) =>
+      this.queryEnvironmentGraph(
+        typeof params === 'string' ? { cypher: params } : params,
+        environmentId
+      ),
+    graphWrite: (params: GraphCypherParams | string, environmentId?: string) =>
+      this.queryEnvironmentGraph(
+        typeof params === 'string' ? { cypher: params } : params,
+        environmentId
+      ),
+    graphSchema: (environmentId?: string) =>
+      this.getEnvironmentGraphSchema(this.resolveEnvironmentId(environmentId)),
     recordOutcome: (params: RecordOutcomeParams, environmentId?: string) =>
       this.recordEnvironmentOutcome(params, environmentId),
     tables: (environmentId?: string) =>
       this.listEnvironmentDbTables(this.resolveEnvironmentId(environmentId)),
-    exportVpnConfig: (environmentId?: string) =>
-      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId))
+    exportVpnConfig: (environmentId?: string, publicKey?: string) =>
+      this.getEnvironmentWireguardConfig(this.resolveEnvironmentId(environmentId), publicKey)
   })
 
   readonly connections = Object.freeze({
@@ -886,11 +1011,61 @@ export class HebrahClient {
   }
 
   private getEnvironmentWireguardConfig(
-    environmentId: string
+    environmentId: string,
+    publicKey?: string
   ): Promise<WireguardConfigResponse> {
+    const query = publicKey?.trim()
+      ? `?public_key=${encodeURIComponent(publicKey.trim())}`
+      : ''
     return hebrahRequest<WireguardConfigResponse>(
       this.config,
-      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/wireguard/config`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/wireguard/config${query}`
+    )
+  }
+
+  private registerEnvironmentWireguardPeer(
+    params: RegisterWireguardPeerParams,
+    environmentId?: string
+  ): Promise<WireguardPeerRecord> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const publicKey = (params.public_key ?? params.publicKey ?? '').trim()
+    const peerName = (
+      params.peer_name ??
+      params.peerName ??
+      params.device_name ??
+      params.deviceName ??
+      'developer-workstation'
+    ).trim()
+    return hebrahRequest<WireguardPeerRecord>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/vpn/peers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          peer_name: peerName,
+          ...(publicKey ? { public_key: publicKey } : {})
+        })
+      }
+    )
+  }
+
+  private listEnvironmentWireguardPeers(
+    environmentId: string
+  ): Promise<{ environment_id: string; peers: WireguardPeerRecord[] }> {
+    return hebrahRequest<{ environment_id: string; peers: WireguardPeerRecord[] }>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/vpn/peers`
+    )
+  }
+
+  private revokeEnvironmentWireguardPeer(
+    environmentId: string,
+    peerId: string
+  ): Promise<{ status: string; peer_id: string }> {
+    return hebrahRequest<{ status: string; peer_id: string }>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/vpn/peers/${safePathSegment(peerId, 'peerId')}`,
+      { method: 'DELETE' }
     )
   }
 
@@ -1123,6 +1298,234 @@ export class HebrahClient {
           sql: interpolatedSql,
           addon: params.addon ?? 'postgres',
           actor_type: params.actor_type ?? 'agent'
+        })
+      }
+    )
+  }
+
+  private executeEnvironmentDb(
+    params: DbExecuteParams,
+    environmentId?: string
+  ): Promise<DbExecuteResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const interpolatedSql = interpolateSqlParams(params.sql, params.params)
+    return hebrahRequest<DbExecuteResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/db/execute`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sql: interpolatedSql,
+          addon: params.addon ?? 'postgres',
+          actor_type: params.actor_type ?? 'agent'
+        })
+      }
+    )
+  }
+
+  private downloadEnvironmentSqlite(
+    environmentId: string
+  ): Promise<SqliteDownloadResponse> {
+    return hebrahRequest<SqliteDownloadResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/sqlite/download`
+    )
+  }
+
+  private uploadEnvironmentSqlite(
+    params: SqliteUploadParams,
+    environmentId?: string
+  ): Promise<SqliteUploadResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const b64 = (params.sqlite_base64 ?? params.sqliteBase64 ?? '').trim()
+    if (!b64) {
+      throw new Error('sqlite_base64 is required')
+    }
+    return hebrahRequest<SqliteUploadResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/sqlite/upload`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ sqlite_base64: b64 })
+      }
+    )
+  }
+
+  private listEnvironmentVectorCollections(
+    environmentId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/vector/collections`
+    )
+  }
+
+  private createEnvironmentVectorCollection(
+    params: VectorCreateCollectionParams,
+    environmentId?: string
+  ): Promise<Record<string, unknown>> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    if (!params.name?.trim()) {
+      throw new Error('collection name is required')
+    }
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/vector/collections`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: params.name.trim(),
+          dimensions: params.dimensions ?? 384,
+          distance: params.distance ?? 'Cosine'
+        })
+      }
+    )
+  }
+
+  private upsertEnvironmentVectors(
+    params: VectorUpsertParams,
+    environmentId?: string
+  ): Promise<VectorUpsertResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    if (!Array.isArray(params.points) || params.points.length === 0) {
+      throw new Error('points must be a non-empty array')
+    }
+    return hebrahRequest<VectorUpsertResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/vector/upsert`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          collection: params.collection ?? 'clinical_notes',
+          points: params.points
+        })
+      }
+    )
+  }
+
+  private searchEnvironmentVectors(
+    params: VectorSearchParams,
+    environmentId?: string
+  ): Promise<VectorSearchResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    if (!params.query?.trim()) {
+      throw new Error('query is required')
+    }
+    const collection = params.collection ?? params.corpus ?? 'all'
+    const limit = params.top_k ?? params.limit ?? 5
+    return hebrahRequest<VectorSearchResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/vector/search`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          query: params.query.trim(),
+          corpus: collection,
+          collection,
+          limit,
+          ...(params.filter ? { filter: params.filter } : {})
+        })
+      }
+    )
+  }
+
+  private deleteEnvironmentVectors(
+    params: VectorDeleteParams,
+    environmentId?: string
+  ): Promise<Record<string, unknown>> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    if (!Array.isArray(params.ids) || params.ids.length === 0) {
+      throw new Error('ids must be a non-empty array')
+    }
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/vector/delete`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          collection: params.collection ?? 'clinical_notes',
+          ids: params.ids
+        })
+      }
+    )
+  }
+
+  private queryEnvironmentGraph(
+    params: GraphCypherParams,
+    environmentId?: string
+  ): Promise<GraphCypherResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    if (!params.cypher?.trim()) {
+      throw new Error('cypher is required')
+    }
+    return hebrahRequest<GraphCypherResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/graph/cypher`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          cypher: params.cypher.trim(),
+          limit: params.limit ?? 25,
+          ...(params.concept_filter ? { concept_filter: params.concept_filter } : {}),
+          ...(params.parameters ? { parameters: params.parameters } : {})
+        })
+      }
+    )
+  }
+
+  private getEnvironmentGraphSchema(
+    environmentId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/graph/schema`
+    )
+  }
+
+  private promoteEnvironmentToConnectedEhr(
+    params: PromoteEnvironmentEhrParams,
+    environmentId?: string
+  ): Promise<PromoteEnvironmentEhrResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const connId = (params.connection_id ?? params.connectionId ?? '').trim()
+    if (!connId) {
+      throw new Error('connection_id is required')
+    }
+    const baaAcknowledged = Boolean(params.baa_acknowledged ?? params.baaAcknowledged)
+    const syncInitial = params.sync_initial_cohort ?? params.syncInitialCohort ?? true
+    return hebrahRequest<PromoteEnvironmentEhrResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/promote-ehr`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          connection_id: connId,
+          baa_acknowledged: baaAcknowledged,
+          sync_initial_cohort: Boolean(syncInitial)
+        })
+      }
+    )
+  }
+
+  private syncEnvironmentConnector(
+    params: SyncEnvironmentConnectorParams,
+    environmentId?: string
+  ): Promise<SyncEnvironmentConnectorResponse> {
+    const envId = this.resolveEnvironmentId(environmentId ?? params.environmentId)
+    const connId = (params.connection_id ?? params.connectionId ?? '').trim()
+    if (!connId) {
+      throw new Error('connection_id is required')
+    }
+    const maxRows = params.max_rows_per_table ?? params.maxRowsPerTable ?? 50
+    return hebrahRequest<SyncEnvironmentConnectorResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(envId, 'environmentId')}/connectors/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          connection_id: connId,
+          ...(params.tables ? { tables: params.tables } : {}),
+          max_rows_per_table: maxRows
         })
       }
     )

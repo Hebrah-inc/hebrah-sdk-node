@@ -66,6 +66,26 @@ export type {
   ConciergeChatResponse,
   ConciergeClaimParams,
   InviteHumanParams,
-  InviteHumanResponse
+  InviteHumanResponse,
+  DbExecuteParams,
+  DbExecuteResponse,
+  SqliteDownloadResponse,
+  SqliteUploadParams,
+  SqliteUploadResponse,
+  VectorPointInput,
+  VectorUpsertParams,
+  VectorUpsertResponse,
+  VectorSearchParams,
+  VectorSearchResponse,
+  VectorDeleteParams,
+  VectorCreateCollectionParams,
+  GraphCypherParams,
+  GraphCypherResponse,
+  RegisterWireguardPeerParams,
+  WireguardPeerRecord,
+  PromoteEnvironmentEhrParams,
+  PromoteEnvironmentEhrResponse,
+  SyncEnvironmentConnectorParams,
+  SyncEnvironmentConnectorResponse
 } from './types.js'
 export type { HebrahAgentHarnessOptions, LlmProvider } from './harness.js'

@@ -303,6 +303,9 @@ export interface EnvironmentSummary {
   bed_count: number
   endpoints: Record<string, string>
   wireguard_ip?: string | null
+  wireguard_peers?: Record<string, unknown>[]
+  ehr_mode?: 'synthetic' | 'connected_ehr' | string
+  upstream_connection_id?: string | null
   queries_run: number
   bytes_egressed: number
   hourly_rate_cents: number
@@ -760,6 +763,184 @@ export interface InviteHumanResponse {
   emailSent?: boolean
   markdown?: string
 }
+
+export interface DbExecuteParams {
+  sql: string
+  params?: unknown[]
+  addon?: string
+  actor_type?: string
+  environmentId?: string
+}
+
+export interface DbExecuteResponse {
+  status: string
+  addon: string
+  rows_affected: number
+  rows: Record<string, unknown>[]
+  bytes_egressed: number
+  duration_ms: number
+  sql_executed: string
+}
+
+export interface SqliteDownloadResponse {
+  environment_id: string
+  filename: string
+  size_bytes: number
+  sha256: string
+  sqlite_base64: string
+}
+
+export interface SqliteUploadParams {
+  sqlite_base64?: string
+  sqliteBase64?: string
+  environmentId?: string
+}
+
+export interface SqliteUploadResponse {
+  status: string
+  environment_id: string
+  size_bytes: number
+  sha256: string
+  tables: string[]
+}
+
+export interface VectorPointInput {
+  id?: string
+  document?: string
+  text?: string
+  vector?: number[]
+  metadata?: Record<string, unknown>
+  payload?: Record<string, unknown>
+}
+
+export interface VectorUpsertParams {
+  collection?: string
+  points: VectorPointInput[]
+  environmentId?: string
+}
+
+export interface VectorUpsertResponse {
+  status: string
+  collection: string
+  upserted_count: number
+  point_ids: string[]
+  engine: string
+}
+
+export interface VectorSearchParams {
+  query: string
+  collection?: string
+  corpus?: string
+  limit?: number
+  top_k?: number
+  filter?: Record<string, unknown>
+  environmentId?: string
+}
+
+export interface VectorSearchResponse {
+  query: string
+  corpus: string
+  results: Record<string, unknown>[]
+  matches?: Record<string, unknown>[]
+  result_count: number
+  duration_ms: number
+  engine?: string
+}
+
+export interface VectorDeleteParams {
+  collection?: string
+  ids: string[]
+  environmentId?: string
+}
+
+export interface VectorCreateCollectionParams {
+  name: string
+  dimensions?: number
+  distance?: string
+  environmentId?: string
+}
+
+export interface GraphCypherParams {
+  cypher: string
+  parameters?: Record<string, unknown>
+  concept_filter?: string
+  limit?: number
+  environmentId?: string
+}
+
+export interface GraphCypherResponse {
+  cypher_executed: string
+  nodes: Record<string, unknown>[]
+  edges: Record<string, unknown>[]
+  records?: Record<string, unknown>[]
+  node_count: number
+  edge_count: number
+  duration_ms: number
+  engine?: string
+}
+
+export interface RegisterWireguardPeerParams {
+  public_key?: string
+  publicKey?: string
+  peer_name?: string
+  peerName?: string
+  device_name?: string
+  deviceName?: string
+  environmentId?: string
+}
+
+export interface WireguardPeerRecord {
+  peer_id: string
+  peer_name: string
+  public_key: string
+  client_ip: string
+  allowed_ips?: string
+  endpoint: string
+  server_public_key: string
+  config?: string
+  config_file?: string
+  status?: string
+  created_at?: string
+}
+
+export interface PromoteEnvironmentEhrParams {
+  connection_id?: string
+  connectionId?: string
+  baa_acknowledged?: boolean
+  baaAcknowledged?: boolean
+  sync_initial_cohort?: boolean
+  syncInitialCohort?: boolean
+  environmentId?: string
+}
+
+export interface PromoteEnvironmentEhrResponse {
+  status: string
+  environment_id: string
+  ehr_mode: 'connected_ehr' | 'synthetic' | string
+  upstream_connection_id: string
+  target_id: string
+  synced_patients: number
+  addon_sync?: Record<string, unknown>
+}
+
+export interface SyncEnvironmentConnectorParams {
+  connection_id?: string
+  connectionId?: string
+  tables?: string[]
+  max_rows_per_table?: number
+  maxRowsPerTable?: number
+  environmentId?: string
+}
+
+export interface SyncEnvironmentConnectorResponse {
+  status: string
+  environment_id: string
+  connection_id: string
+  target_id: string
+  tables_synced: Record<string, number>
+  addon_sync?: Record<string, unknown>
+}
+
 
 
 
