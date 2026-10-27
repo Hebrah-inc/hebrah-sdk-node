@@ -1328,7 +1328,7 @@ export class HebrahClient {
   ): Promise<SqliteDownloadResponse> {
     return hebrahRequest<SqliteDownloadResponse>(
       this.config,
-      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/sqlite/download`
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/sqlite/download?format=json`
     )
   }
 
