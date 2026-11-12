@@ -86,6 +86,16 @@ export type {
   PromoteEnvironmentEhrParams,
   PromoteEnvironmentEhrResponse,
   SyncEnvironmentConnectorParams,
-  SyncEnvironmentConnectorResponse
+  SyncEnvironmentConnectorResponse,
+  EcgSuperclass,
+  ListEcgExemplarsParams,
+  ListEcgStudiesParams,
+  AttachEcgStudyParams,
+  CompareEcgParams,
+  CreateCohortBranchParams,
+  ForkCohortBranchParams,
+  CompareCohortBranchesParams,
+  PrescribingCascadeHookParams,
+  PrescribingCascadeHookResponse
 } from './types.js'
 export type { HebrahAgentHarnessOptions, LlmProvider } from './harness.js'

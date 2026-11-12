@@ -99,7 +99,16 @@ import type {
   PromoteEnvironmentEhrParams,
   PromoteEnvironmentEhrResponse,
   SyncEnvironmentConnectorParams,
-  SyncEnvironmentConnectorResponse
+  SyncEnvironmentConnectorResponse,
+  ListEcgExemplarsParams,
+  ListEcgStudiesParams,
+  AttachEcgStudyParams,
+  CompareEcgParams,
+  CreateCohortBranchParams,
+  ForkCohortBranchParams,
+  CompareCohortBranchesParams,
+  PrescribingCascadeHookParams,
+  PrescribingCascadeHookResponse
 } from './types.js'
 
 export function interpolateSqlParams(sql: string, params?: unknown[]): string {
@@ -315,7 +324,121 @@ export class HebrahClient {
       }
       return this.consultEnvironmentStudio(this.resolveEnvironmentId(), envOrParams)
     },
-    openDataCatalog: (environmentId?: string) => this.getOpenDataCatalog(environmentId)
+    openDataCatalog: (environmentId?: string) => this.getOpenDataCatalog(environmentId),
+    fhir: Object.freeze({
+      search: (
+        resourceType: string,
+        params?: Record<string, string | number | boolean>,
+        environmentId?: string
+      ) =>
+        this.searchEnvironmentFhirBundle(
+          this.resolveEnvironmentId(environmentId),
+          resourceType,
+          params
+        ),
+      create: (
+        resourceType: string,
+        payload: Record<string, unknown>,
+        environmentId?: string
+      ) =>
+        this.createEnvironmentFhirResource(
+          this.resolveEnvironmentId(environmentId),
+          resourceType,
+          payload
+        )
+    }),
+    specialtyPacks: Object.freeze({
+      list: (environmentId?: string) =>
+        this.listEnvironmentSpecialtyPacks(this.resolveEnvironmentId(environmentId)),
+      get: (specialtyOrEnvId: string, specialtyId?: string) => {
+        if (specialtyId !== undefined) {
+          return this.getEnvironmentSpecialtyPack(specialtyOrEnvId, specialtyId)
+        }
+        return this.getEnvironmentSpecialtyPack(this.resolveEnvironmentId(), specialtyOrEnvId)
+      }
+    }),
+    ecg: Object.freeze({
+      listExemplars: (params?: ListEcgExemplarsParams | string, environmentId?: string) => {
+        if (typeof params === 'string') {
+          return this.listEnvironmentEcgExemplars(
+            this.resolveEnvironmentId(environmentId),
+            { superclass: params }
+          )
+        }
+        return this.listEnvironmentEcgExemplars(
+          this.resolveEnvironmentId(environmentId ?? params?.environmentId),
+          params
+        )
+      },
+      listStudies: (params?: ListEcgStudiesParams, environmentId?: string) =>
+        this.listEnvironmentEcgStudies(
+          this.resolveEnvironmentId(environmentId ?? params?.environmentId),
+          params
+        ),
+      getStudy: (studyOrEcgId: string | number, environmentId?: string) =>
+        this.getEnvironmentEcgStudy(
+          this.resolveEnvironmentId(environmentId),
+          String(studyOrEcgId)
+        ),
+      getWaveform: (studyOrEcgId: string | number, environmentId?: string) =>
+        this.getEnvironmentEcgWaveform(
+          this.resolveEnvironmentId(environmentId),
+          String(studyOrEcgId)
+        ),
+      attach: (params: AttachEcgStudyParams, environmentId?: string) =>
+        this.attachEnvironmentEcgStudy(
+          this.resolveEnvironmentId(environmentId ?? params.environmentId),
+          params
+        ),
+      compare: (params: CompareEcgParams, environmentId?: string) =>
+        this.compareEnvironmentEcgs(
+          this.resolveEnvironmentId(environmentId ?? params.environmentId),
+          params
+        )
+    }),
+    cohorts: Object.freeze({
+      listBranches: (environmentId?: string) =>
+        this.listEnvironmentCohortBranches(this.resolveEnvironmentId(environmentId)),
+      createBranch: (params: CreateCohortBranchParams, environmentId?: string) =>
+        this.createEnvironmentCohortBranch(
+          this.resolveEnvironmentId(environmentId ?? params.environmentId),
+          params
+        ),
+      forkBranch: (branchOrParams: string | ForkCohortBranchParams, params?: ForkCohortBranchParams, environmentId?: string) => {
+        if (typeof branchOrParams === 'string') {
+          return this.forkEnvironmentCohortBranch(
+            this.resolveEnvironmentId(environmentId ?? params?.environmentId),
+            branchOrParams,
+            params ?? {}
+          )
+        }
+        const bid = branchOrParams.branch_id ?? branchOrParams.branchId
+        if (!bid) {
+          throw new Error('branch_id is required to fork a cohort branch')
+        }
+        return this.forkEnvironmentCohortBranch(
+          this.resolveEnvironmentId(environmentId ?? branchOrParams.environmentId),
+          bid,
+          branchOrParams
+        )
+      },
+      compareBranches: (params: CompareCohortBranchesParams, environmentId?: string) =>
+        this.compareEnvironmentCohortBranches(
+          this.resolveEnvironmentId(environmentId ?? params.environmentId),
+          params.left,
+          params.right
+        )
+    }),
+    evaluatePrescribingCascade: (
+      params: PrescribingCascadeHookParams = {},
+      environmentId?: string
+    ) =>
+      this.evaluateEnvironmentPrescribingCascade(
+        this.resolveEnvironmentId(environmentId ?? params.environmentId),
+        params
+      ),
+    x12Benchmark: (environmentId?: string) =>
+      this.getEnvironmentX12Benchmark(this.resolveEnvironmentId(environmentId))
   })
 
   readonly db = Object.freeze({
@@ -855,6 +978,9 @@ export class HebrahClient {
     if (resourceType.trim().toLowerCase() === 'patient' && envId) {
       return this.listEnvironmentPatients(envId)
     }
+    if (envId) {
+      return this.searchEnvironmentFhirBundle(envId, safeType, params)
+    }
     const search = new URLSearchParams()
     const resolvedConn = this.resolveConnectionId()
     if (resolvedConn) {
@@ -869,6 +995,45 @@ export class HebrahClient {
     }
     const q = search.toString() ? `?${search.toString()}` : ''
     return hebrahRequest<unknown>(this.config, `/v1/sandbox/resources/${safeType}${q}`)
+  }
+
+  private searchEnvironmentFhirBundle(
+    environmentId: string,
+    resourceType: string,
+    params?: Record<string, string | number | boolean>
+  ): Promise<Record<string, unknown>> {
+    const safeEnv = safePathSegment(environmentId, 'environmentId')
+    const safeType = safePathSegment(resourceType, 'resourceType')
+    const search = new URLSearchParams()
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null) {
+          search.set(k, String(v))
+        }
+      }
+    }
+    const q = search.toString() ? `?${search.toString()}` : ''
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safeEnv}/fhir/${safeType}${q}`
+    )
+  }
+
+  private createEnvironmentFhirResource(
+    environmentId: string,
+    resourceType: string,
+    payload: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    const safeEnv = safePathSegment(environmentId, 'environmentId')
+    const safeType = safePathSegment(resourceType, 'resourceType')
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safeEnv}/fhir/${safeType}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    )
   }
 
   private getFhirMetadata(): Promise<Record<string, unknown>> {
@@ -1091,6 +1256,16 @@ export class HebrahClient {
     params: AdmitPatientsParams = {}
   ): Promise<AdmitPatientsResponse> {
     const cohort = params.patient_cohort ?? params.cohort
+    const specialtyPackId = params.specialty_pack_id ?? params.specialtyPackId
+    const conditionIds = params.condition_ids ?? params.conditionIds
+    const branchId = params.branch_id ?? params.branchId
+    const diagnosisPathways = params.diagnosis_pathways ?? params.diagnosisPathways
+    const treatmentModalities = params.treatment_modalities ?? params.treatmentModalities
+    const acuityLevels =
+      params.acuity_levels ??
+      params.acuityLevels ??
+      (params.acuity ? [params.acuity] : undefined)
+    const notes = params.notes ?? params.clinical_notes ?? params.clinicalNotes
     return hebrahRequest<AdmitPatientsResponse>(
       this.config,
       `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ehr/patients/generate`,
@@ -1100,9 +1275,242 @@ export class HebrahClient {
           count: params.count ?? 5,
           ...(cohort ? { cohort, patient_cohort: cohort } : {}),
           ...(params.acuity ? { acuity: params.acuity } : {}),
+          ...(acuityLevels ? { acuity_levels: acuityLevels } : {}),
+          ...(params.departments ? { departments: params.departments } : {}),
+          ...(diagnosisPathways ? { diagnosis_pathways: diagnosisPathways } : {}),
+          ...(treatmentModalities ? { treatment_modalities: treatmentModalities } : {}),
+          ...(specialtyPackId ? { specialty_pack_id: specialtyPackId } : {}),
+          ...(conditionIds ? { condition_ids: conditionIds } : {}),
+          ...(params.depth ? { depth: params.depth } : {}),
+          ...(branchId ? { branch_id: branchId } : {}),
+          ...(notes ? { notes, clinical_notes: notes } : {})
+        })
+      }
+    )
+  }
+
+  private listEnvironmentSpecialtyPacks(
+    environmentId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/specialty-packs`
+    )
+  }
+
+  private getEnvironmentSpecialtyPack(
+    environmentId: string,
+    specialtyId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/specialty-packs/${safePathSegment(specialtyId, 'specialtyId')}`
+    )
+  }
+
+  private listEnvironmentEcgExemplars(
+    environmentId: string,
+    params?: ListEcgExemplarsParams
+  ): Promise<Record<string, unknown>> {
+    const q = params?.superclass
+      ? `?superclass=${encodeURIComponent(String(params.superclass))}`
+      : ''
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/exemplars${q}`
+    )
+  }
+
+  private listEnvironmentEcgStudies(
+    environmentId: string,
+    params?: ListEcgStudiesParams
+  ): Promise<Record<string, unknown>> {
+    const search = new URLSearchParams()
+    const pid = params?.patient_id ?? params?.patientId
+    if (pid) search.set('patient_id', pid)
+    if (params?.superclass) search.set('superclass', String(params.superclass))
+    const q = search.toString() ? `?${search.toString()}` : ''
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/studies${q}`
+    )
+  }
+
+  private getEnvironmentEcgStudy(
+    environmentId: string,
+    studyOrEcgId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/studies/${safePathSegment(studyOrEcgId, 'studyId')}`
+    )
+  }
+
+  private getEnvironmentEcgWaveform(
+    environmentId: string,
+    studyOrEcgId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/studies/${safePathSegment(studyOrEcgId, 'studyId')}/waveform`
+    )
+  }
+
+  private attachEnvironmentEcgStudy(
+    environmentId: string,
+    params: AttachEcgStudyParams
+  ): Promise<Record<string, unknown>> {
+    const patientId = (params.patient_id ?? params.patientId ?? '').trim()
+    if (!patientId) {
+      throw new Error('patient_id is required to attach an ECG study')
+    }
+    const ecgId = params.ecg_id ?? params.ecgId
+    const notes = params.clinical_notes ?? params.clinicalNotes ?? params.notes
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/studies`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          patient_id: patientId,
+          ...(ecgId !== undefined ? { ecg_id: ecgId } : {}),
+          ...(params.superclass ? { superclass: params.superclass } : {}),
+          ...(notes ? { clinical_notes: notes } : {})
+        })
+      }
+    )
+  }
+
+  private compareEnvironmentEcgs(
+    environmentId: string,
+    params: CompareEcgParams
+  ): Promise<Record<string, unknown>> {
+    const leftId = params.left_ecg_id ?? params.leftEcgId
+    const rightId = params.right_ecg_id ?? params.rightEcgId
+    if (leftId === undefined || rightId === undefined) {
+      throw new Error('left_ecg_id and right_ecg_id are required to compare ECGs')
+    }
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/ecg/compare`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          left_ecg_id: leftId,
+          right_ecg_id: rightId
+        })
+      }
+    )
+  }
+
+  private listEnvironmentCohortBranches(
+    environmentId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/cohorts/branches`
+    )
+  }
+
+  private createEnvironmentCohortBranch(
+    environmentId: string,
+    params: CreateCohortBranchParams
+  ): Promise<Record<string, unknown>> {
+    if (!params.name?.trim()) {
+      throw new Error('name is required to create a cohort branch')
+    }
+    const specialtyPackId = params.specialty_pack_id ?? params.specialtyPackId ?? 'cardiology'
+    const conditionIds = params.condition_ids ?? params.conditionIds
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/cohorts/branches`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: params.name.trim(),
+          specialty_pack_id: specialtyPackId,
+          ...(conditionIds ? { condition_ids: conditionIds } : {}),
+          ...(params.count !== undefined ? { count: params.count } : {}),
+          ...(params.depth ? { depth: params.depth } : {}),
           ...(params.notes ? { notes: params.notes } : {})
         })
       }
+    )
+  }
+
+  private forkEnvironmentCohortBranch(
+    environmentId: string,
+    branchId: string,
+    params: ForkCohortBranchParams = {}
+  ): Promise<Record<string, unknown>> {
+    const conditionIds = params.condition_ids ?? params.conditionIds
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/cohorts/branches/${safePathSegment(branchId, 'branchId')}/fork`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(params.name ? { name: params.name } : {}),
+          ...(conditionIds ? { condition_ids: conditionIds } : {}),
+          ...(params.count !== undefined ? { count: params.count } : {}),
+          ...(params.depth ? { depth: params.depth } : {}),
+          ...(params.notes ? { notes: params.notes } : {})
+        })
+      }
+    )
+  }
+
+  private compareEnvironmentCohortBranches(
+    environmentId: string,
+    left: string,
+    right: string
+  ): Promise<Record<string, unknown>> {
+    if (!left?.trim() || !right?.trim()) {
+      throw new Error('left and right branch IDs are required')
+    }
+    const search = new URLSearchParams({
+      left: left.trim(),
+      right: right.trim()
+    })
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/cohorts/branches/compare?${search.toString()}`
+    )
+  }
+
+  private evaluateEnvironmentPrescribingCascade(
+    environmentId: string,
+    params: PrescribingCascadeHookParams = {}
+  ): Promise<PrescribingCascadeHookResponse> {
+    const patientId = params.patient_id ?? params.patientId ?? params.context?.patientId
+    const encounterId = params.encounter_id ?? params.encounterId ?? params.context?.encounterId
+    const proposedRxnorm = params.proposed_rxnorm ?? params.proposedRxnorm
+    const proposedDisplay = params.proposed_display ?? params.proposedDisplay
+    return hebrahRequest<PrescribingCascadeHookResponse>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/cds-hooks/prescribing-cascade`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          hook: params.hook ?? 'order-sign',
+          ...(params.hookInstance ? { hookInstance: params.hookInstance } : {}),
+          ...(params.context ? { context: params.context } : {}),
+          ...(patientId ? { patient_id: patientId } : {}),
+          ...(encounterId ? { encounter_id: encounterId } : {}),
+          ...(proposedRxnorm ? { proposed_rxnorm: proposedRxnorm } : {}),
+          ...(proposedDisplay ? { proposed_display: proposedDisplay } : {}),
+          ...(params.prefetch ? { prefetch: params.prefetch } : {})
+        })
+      }
+    )
+  }
+
+  private getEnvironmentX12Benchmark(
+    environmentId: string
+  ): Promise<Record<string, unknown>> {
+    return hebrahRequest<Record<string, unknown>>(
+      this.config,
+      `/v1/environments/${safePathSegment(environmentId, 'environmentId')}/x12/benchmark`
     )
   }
 

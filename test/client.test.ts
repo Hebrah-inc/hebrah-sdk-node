@@ -832,6 +832,161 @@ describe('verifyWebhookSignature', () => {
     })
     expect(inviteRes.status).toBe('invited')
   })
+
+  it('supports cardiology ECGs, specialty packs, cohort branches, prescribing cascade CDS hooks, and environment FHIR bundles', async () => {
+    const client = new HebrahClient({
+      apiKey: 'hb_test_key',
+      baseUrl: BASE,
+      environmentId: 'env-cardio-1'
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    // 1. admitPatients with specialty_pack_id, condition_ids, depth="rich", count=200
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ environment_id: 'env-cardio-1', admitted_count: 200 }),
+        { status: 200 }
+      )
+    )
+    const admitRes = await client.environments.admitPatients({
+      count: 200,
+      specialty_pack_id: 'geriatric_polypharmacy',
+      condition_ids: ['ger_cascade_oxybutynin_delirium_antipsychotic'],
+      depth: 'rich',
+      branch_id: 'branch-baseline'
+    })
+    expect(admitRes.admitted_count).toBe(200)
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/ehr/patients/generate`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          count: 200,
+          specialty_pack_id: 'geriatric_polypharmacy',
+          condition_ids: ['ger_cascade_oxybutynin_delirium_antipsychotic'],
+          depth: 'rich',
+          branch_id: 'branch-baseline'
+        })
+      })
+    )
+
+    // 2. fhir.search routes non-Patient resources (e.g. MedicationRequest) to /v1/environments/{id}/fhir/*
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ resourceType: 'Bundle', total: 6, entry: [] }),
+        { status: 200 }
+      )
+    )
+    const medBundle = await client.fhir.search('MedicationRequest', { patient: 'pat-013', _count: 100 })
+    expect((medBundle as Record<string, unknown>).resourceType).toBe('Bundle')
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/fhir/MedicationRequest?patient=pat-013&_count=100`,
+      expect.any(Object)
+    )
+
+    // 3. specialtyPacks.list & get
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ count: 12, packs: [{ id: 'cardiology' }] }), { status: 200 })
+    )
+    await client.environments.specialtyPacks.list()
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/specialty-packs`,
+      expect.any(Object)
+    )
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 'cardiology', conditions: [] }), { status: 200 })
+    )
+    await client.environments.specialtyPacks.get('cardiology')
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/specialty-packs/cardiology`,
+      expect.any(Object)
+    )
+
+    // 4. ecg.listExemplars, listStudies, getWaveform, attach, compare
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ exemplars: [{ ecg_id: 4 }] }), { status: 200 })
+    )
+    await client.environments.ecg.listExemplars('MI')
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/ecg/exemplars?superclass=MI`,
+      expect.any(Object)
+    )
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, study: { id: 'ecg-study-1' } }), { status: 201 })
+    )
+    await client.environments.ecg.attach({ patientId: 'pat-013', ecgId: 4, superclass: 'MI' })
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/ecg/studies`,
+      expect.objectContaining({ method: 'POST' })
+    )
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ left_ecg_id: 1, right_ecg_id: 4 }), { status: 200 })
+    )
+    await client.environments.ecg.compare({ leftEcgId: 1, rightEcgId: 4 })
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/ecg/compare`,
+      expect.objectContaining({ method: 'POST' })
+    )
+
+    // 5. cohorts.listBranches, createBranch, forkBranch, compareBranches
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, branch: { id: 'br-1' } }), { status: 200 })
+    )
+    await client.environments.cohorts.createBranch({
+      name: 'STEMI Arm A',
+      specialtyPackId: 'cardiology',
+      count: 10,
+      depth: 'rich'
+    })
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/cohorts/branches`,
+      expect.objectContaining({ method: 'POST' })
+    )
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ left_branch_id: 'br-1', right_branch_id: 'br-2' }), { status: 200 })
+    )
+    await client.environments.cohorts.compareBranches({ left: 'br-1', right: 'br-2' })
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/cohorts/branches/compare?left=br-1&right=br-2`,
+      expect.any(Object)
+    )
+
+    // 6. evaluatePrescribingCascade & x12Benchmark
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          cards: [{ indicator: 'critical', summary: 'Prescribing Cascade Detected' }],
+          environment_id: 'env-cardio-1',
+          patient_id: 'pat-013',
+          ground_truth: { is_prescribing_cascade: true, cascade_class: 'positive_cascade' }
+        }),
+        { status: 200 }
+      )
+    )
+    const cascadeRes = await client.environments.evaluatePrescribingCascade({
+      patientId: 'pat-013',
+      proposedRxnorm: '312961',
+      proposedDisplay: 'Quetiapine 25 MG Oral Tablet'
+    })
+    expect(cascadeRes.ground_truth?.is_prescribing_cascade).toBe(true)
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/cds-hooks/prescribing-cascade`,
+      expect.objectContaining({ method: 'POST' })
+    )
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ pack_id: 'medicare_utilization_v1' }), { status: 200 })
+    )
+    await client.environments.x12Benchmark()
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      `${BASE}/v1/environments/env-cardio-1/x12/benchmark`,
+      expect.any(Object)
+    )
+  })
 })
 
 

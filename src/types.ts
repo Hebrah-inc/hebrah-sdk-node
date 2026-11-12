@@ -462,7 +462,137 @@ export interface AdmitPatientsParams {
   cohort?: string
   patient_cohort?: string
   acuity?: string
+  acuity_levels?: string[]
+  acuityLevels?: string[]
+  departments?: string[]
+  diagnosis_pathways?: string[]
+  diagnosisPathways?: string[]
+  treatment_modalities?: string[]
+  treatmentModalities?: string[]
+  specialty_pack_id?: string
+  specialtyPackId?: string
+  condition_ids?: string[]
+  conditionIds?: string[]
+  depth?: 'standard' | 'rich' | string
+  branch_id?: string
+  branchId?: string
   notes?: string
+  clinical_notes?: string
+  clinicalNotes?: string
+}
+
+export type EcgSuperclass = 'NORM' | 'MI' | 'STTC' | 'CD' | 'HYP' | string
+
+export interface ListEcgExemplarsParams {
+  superclass?: EcgSuperclass
+  environmentId?: string
+}
+
+export interface ListEcgStudiesParams {
+  patient_id?: string
+  patientId?: string
+  superclass?: EcgSuperclass
+  environmentId?: string
+}
+
+export interface AttachEcgStudyParams {
+  patient_id?: string
+  patientId?: string
+  ecg_id?: number | string
+  ecgId?: number | string
+  superclass?: EcgSuperclass
+  clinical_notes?: string
+  clinicalNotes?: string
+  notes?: string
+  environmentId?: string
+}
+
+export interface CompareEcgParams {
+  left_ecg_id?: number | string
+  leftEcgId?: number | string
+  right_ecg_id?: number | string
+  rightEcgId?: number | string
+  environmentId?: string
+}
+
+export interface CreateCohortBranchParams {
+  name: string
+  specialty_pack_id?: string
+  specialtyPackId?: string
+  condition_ids?: string[]
+  conditionIds?: string[]
+  count?: number
+  depth?: 'standard' | 'rich' | string
+  notes?: string
+  environmentId?: string
+}
+
+export interface ForkCohortBranchParams {
+  branch_id?: string
+  branchId?: string
+  name?: string
+  condition_ids?: string[]
+  conditionIds?: string[]
+  count?: number
+  depth?: 'standard' | 'rich' | string
+  notes?: string
+  environmentId?: string
+}
+
+export interface CompareCohortBranchesParams {
+  left: string
+  right: string
+  environmentId?: string
+}
+
+export interface PrescribingCascadeHookParams {
+  hook?: 'order-sign' | 'order-select' | string
+  hookInstance?: string
+  context?: {
+    userId?: string
+    patientId?: string
+    encounterId?: string
+    draftOrders?: Record<string, unknown>
+    medications?: Record<string, unknown>[]
+    [key: string]: unknown
+  }
+  patient_id?: string
+  patientId?: string
+  encounter_id?: string
+  encounterId?: string
+  proposed_rxnorm?: string
+  proposedRxnorm?: string
+  proposed_display?: string
+  proposedDisplay?: string
+  prefetch?: Record<string, unknown>
+  environmentId?: string
+}
+
+export interface PrescribingCascadeHookResponse {
+  cards: Record<string, unknown>[]
+  environment_id: string
+  patient_id: string
+  encounter_id?: string | null
+  chief_complaint?: Record<string, unknown> | null
+  reconciled_medication_history?: Record<string, unknown>[]
+  ground_truth?: {
+    is_prescribing_cascade?: boolean
+    cascade_class?: 'positive_cascade' | 'negative_control' | string
+    archetype_id?: string | null
+    culprit_drug?: Record<string, unknown> | null
+    misread_symptom?: string | null
+    cascade_drug?: Record<string, unknown> | null
+    downstream_harm?: string | null
+    alternative_etiology?: string | null
+    recommended_action?: string | null
+    latest_egfr_creatinine?: number | null
+    latest_egfr_cystatin_c?: number | null
+    latest_cystatin_c_mg_l?: number | null
+    sarcopenic_cystatin_discordance?: boolean
+    [key: string]: unknown
+  }
+  prefetch?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface AdmitPatientsResponse {
@@ -758,6 +888,9 @@ export interface InviteHumanResponse {
   orgName: string
   inviteEmail: string
   claimUrl: string
+  status?: string
+  human_email?: string
+  claim_url?: string
   claimTokenPrefix?: string
   expiresAt?: string
   emailSent?: boolean
