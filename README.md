@@ -112,9 +112,9 @@ See [SECURITY.md](./SECURITY.md) for supported versions and vulnerability report
 
 | Method | Description |
 |--------|-------------|
-| `client.connections.targets(params?)` | `GET /v1/connections/targets` — list connector targets (`pack`, `all`, `healthy`) |
+| `client.connections.targets(params?)` | `GET /v1/connections/targets` — list Healthcare & Database connector targets (`pack`, `all`, `healthy`) |
 | `client.connections.target(targetId)` | `GET /v1/connections/targets/{id}` |
-| `client.connections.packs(params?)` | `GET /v1/connections/packs` — list active digital health connector packs |
+| `client.connections.packs(params?)` | `GET /v1/connections/packs` — list the 2 active connector packs (`healthcare`, `database`) |
 | `client.connections.open(params)` | `POST /v1/connections` — open a scoped connection (`targetId`, `scopes`, `ttlSeconds`) |
 | `client.connections.list(params?)` | `GET /v1/connections` |
 | `client.connections.get(connectionId?)` | `GET /v1/connections/{id}` |

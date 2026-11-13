@@ -630,7 +630,7 @@ export interface ListEnvironmentPatientsParams {
 }
 
 export interface ListTargetsParams {
-  pack?: string
+  pack?: 'healthcare' | 'database' | (string & {})
   all?: boolean
   healthy?: boolean
 }
@@ -641,9 +641,9 @@ export interface TargetSummary {
   connector: string
   label: string
   description: string
-  pack_id?: string
+  pack_id?: 'healthcare' | 'database' | (string & {})
   pack_label?: string
-  pack_status?: string
+  pack_status?: 'active' | (string & {})
   tables: string[]
   required_scopes?: string[]
   example_scopes?: string[]
@@ -658,10 +658,10 @@ export interface TargetSummary {
 export type TargetDetail = TargetSummary
 
 export interface PackSummary {
-  pack_id: string
+  pack_id: 'healthcare' | 'database' | (string & {})
   label: string
   tagline?: string
-  status?: string
+  status?: 'active' | (string & {})
   tier_note?: string
   target_count: number
   connector_count: number
